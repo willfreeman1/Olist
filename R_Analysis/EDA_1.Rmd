@@ -1,0 +1,118 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+```
+
+
+```{r}
+setwd("C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist")
+```
+
+```{r}
+getwd()
+```
+
+
+```{r}
+list.files()
+```
+```{r}
+customers = read.csv("olist_customers_dataset.csv")
+```
+
+
+```{r}
+orders = read.csv("olist_orders_dataset.csv")
+```
+```{r}
+cust_ord_df = merge(orders, customers, by= "customer_id")
+```
+
+```{r}
+summary(cust_ord_df)
+```
+
+```{r}
+install.packages("dplyr")
+install.packages("ggplot2")
+library("dplyr")
+library("ggplot2")
+```
+```{r}
+cust_ord_df = merge(orders, customers, by= "customer_id")
+
+
+cust_counts = cust_ord_df %>%
+  group_by(customer_unique_id) %>%
+  summarise(count = n())
+
+
+head(cust_counts)
+```
+```{r}
+summary(cust_counts$count)
+```
+
+```{r}
+ggplot(cust_counts, aes(x = count)) +
+  geom_histogram(aes(y = ..count../sum(..count..) * 100), binwidth = 1, fill = "blue", color = "black") +
+  labs(title = "Histogram of Customer Order Counts",
+       x = "Order Count",
+       y = "Frequency")
+```
+
+```{r}
+head(customers)
+```
+```{r}
+cust_ord_counts = orders %>%
+  group_by(customer_id) %>%
+  summarise(order_count = n())
+
+summary(cust_ord_counts)
+```
+
+```{r}
+order_frequency = cust_counts %>%
+  group_by(count) %>%
+  summarise(frequency = n())
+
+print(order_frequency)
+```
+```{r}
+# Concluded from above that Customer Lifetime Value won't be very robust because there are not many repeat purchasers. Next moving on to general EDA. 
+```
+```{r}
+getwd()
+
+# Load the other data sets
+
+geolocation = read.csv("olist_geolocation_dataset")
+order_items = read.csv('olist_order_items_dataset')
+order_payments = read.csv("olist_order_payments_dataset")
+order_reviews = read.csv("olist_order_reviews_dataset")
+products = read.csv("olist_products_dataset")
+sellers = read.csv("olist_sellers_dataset")
+cat_name_translation = read.csv("olist_category_name_translation")
+```
+
+
+```
+

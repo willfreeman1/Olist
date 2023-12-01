@@ -1,0 +1,189 @@
+```{r setup}
+
+options(repos = c(CRAN = "https://cran.rstudios.com"))
+```
+```{r}
+if (!require(imager)) {
+    install.packages("imager", repos = "https://cran.rstudio.com")
+}
+library(imager)
+```
+```{r}
+
+```
+
+```{r}
+# Restarting EDA for full dataset
+
+getwd()
+setwd("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist")
+```
+```{r}
+# Data schema was given as follows:
+setwd("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist")
+
+
+library(imager)
+schema_image = load.image("schema_image.png")
+
+par(mar = c(0,0,0,0))
+plot(schema_image, xaxt='n', yaxt= 'n', asp = 1)
+```
+
+```{r}
+# Loading separate dataset files from Kaggle
+
+setwd("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist")
+
+orders = read.csv("olist_orders_dataset.csv")
+customers = read.csv("olist_customers_dataset.csv")
+geolocation = read.csv("olist_geolocation_dataset.csv")
+order_items = read.csv('olist_order_items_dataset.csv')
+order_payments = read.csv("olist_order_payments_dataset.csv")
+order_reviews = read.csv("olist_order_reviews_dataset.csv")
+products = read.csv("olist_products_dataset.csv")
+sellers = read.csv("olist_sellers_dataset.csv")
+cat_name_translation = read.csv("product_category_name_translation.csv")
+```
+
+
+
+```{r}
+# Next look at summaries of each DF
+setwd("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist")
+
+cat("\nSummary of Orders DF:\n")
+summary(orders)
+
+cat("\n\nSummary of Customers DF:\n")
+summary(customers)
+
+cat("\n\nSummary of Geolocation DF:\n")
+summary(geolocation)
+
+cat("\n\nSummary of Order Items DF:\n")
+summary(order_items)
+
+cat("\n\nSummary of Order Payments DF:\n")
+summary(order_payments)
+
+cat("\n\nSummary of Order Reviews DF:\n")
+summary(order_reviews)
+
+cat("\n\nSummary of Products DF:\n")
+summary(products)
+
+cat("\n\nSummary of Sellers DF:\n")
+summary(sellers)
+
+cat("\n\nSummary of Category Translations DF:\n")
+summary(cat_name_translation)
+
+```
+
+```{r}
+# Get a better understanding of each DF using the skimr package
+
+setwd("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist")
+
+library(skimr)
+
+cat("\nSummary of Orders DF:\n")
+skim(orders)
+
+cat("\n\nSummary of Customers DF:\n")
+skim(customers)
+
+cat("\n\nSummary of Geolocation DF:\n")
+skim(geolocation)
+
+cat("\n\nSummary of Order Items DF:\n")
+skim(order_items)
+
+cat("\n\nSummary of Order Payments DF:\n")
+skim(order_payments)
+
+cat("\n\nSummary of Order Reviews DF:\n")
+skim(order_reviews)
+
+cat("\n\nSummary of Products DF:\n")
+skim(products)
+
+cat("\n\nSummary of Sellers DF:\n")
+skim(sellers)
+
+cat("\n\nSummary of Category Translations DF:\n")
+skim(cat_name_translation)
+
+```
+
+```{r}
+head(order_payments)
+```
+
+```{r}
+install.packages("censobr")
+```
+
+```{r}
+R.version.string
+```
+
+```{r}
+install.packages("arrow")
+install.packages("checkmate")
+install.packages("dplyr")
+install.packages("httr")
+```
+
+```{r}
+chooseCRANmirror()
+```
+```{r}
+# The above was all attempting to install the censobr package to get brazilian demographic data. It's now installed. 
+
+vignette("censobr")
+```
+```{r}
+# I want to check if the dataset shows multiple sellers of the same product at the same/similar time and therefore that there was price competition among sellers. 
+
+# First I need to group sales by month so I can see which products were sold by different sellers in the same month (ie close enough together to perhaps indicate competition)
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# making the shipping date a date type
+order_items$shipping_limit_date = as.Date(order_items$shipping_limit_date)
+
+# creating period column with month of order date
+order_items = order_items %>%
+  mutate(period = floor_date(shipping_limit_date,"month"))
+
+# counting number of unique sellers per period (month)
+seller_counts = order_items %>%
+  group_by(product_id,period) %>%
+  summarise(sellers = n_distinct(seller_id)) %>%
+  ungroup()
+
+# Count how often a certain number of sellers were competiting to sell the same product in a month period
+seller_distribution = seller_counts %>%
+  group_by(sellers) %>%
+  summarise(count = n())
+
+# Plot 
+ggplot(seller_distribution, aes(x = sellers, y = count)) +
+  geom_bar(stat = "identity") + 
+  xlab("Number of Sellers Per Product") + 
+  ylab("Count of Products") +
+  ggtitle("Histogram of Number of Sellers Per Product in Each Month")
+
+# View table
+print(seller_distribution)
+
+```
+
+```{r}
+
+```
+
