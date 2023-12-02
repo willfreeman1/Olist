@@ -45,23 +45,7 @@ tracts_df <- tracts_df |> mutate(income_pc = V003 / V002)
 head(tracts_df)
 ```
 
-Finally, we can merge the spatial data with our per capita income estimates and map the results.
 
-```{r, eval = use_suggested_pkgs, warning = FALSE}
-bh_tracts <- left_join(tracts_sf, tracts_df, by = 'code_tract')
-
-ggplot() +
-  geom_sf(data = bh_tracts, aes(fill = income_pc), color=NA) +
-  geom_sf(data = muni_bh, color='gray10', fill=NA) +
-  labs(subtitle = 'Avgerage income per capita.\nBelo Horizonte, 2010') +
-  scale_fill_viridis_c(name = "Income per\ncapita (R$)",
-                       labels = scales::number_format(),
-                       option = 'cividis',
-                       breaks = c(0, 500, 1e3, 5e3, 1e4, 2e4),
-                       trans = "pseudo_log", na.value = "gray90") +
-  theme_void()
-
-```
 ```{r}
 library(geobr)
 tracts = read_census_tract(code_tract = "all", year=2010)
@@ -106,10 +90,12 @@ st_crs(customer_locations)
 st_crs(tracts)
 ```
 ```{r}
+# Transform geolocations to matching formats
 customer_locations = st_transform(customer_locations, crs = 4674)
 seller_locations = st_transform(seller_locations, crs = 4674)
 ```
 ```{r}
+# Remove any errors
 tracts = st_make_valid((tracts))
 ```
 
@@ -117,7 +103,6 @@ tracts = st_make_valid((tracts))
 # Join tracts with locations
 customer_tracts = st_join(customer_locations, tracts)
 seller_tracts = st_join(seller_locations, tracts)
-
 
 ```
 ```{r}
