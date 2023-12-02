@@ -47,7 +47,7 @@ sellers = sellers %>%
 
 ```{r}
 
-# Join CSVs except geolocation into one dataframe
+# Join CSVs into one dataframe
 
 library(dplyr)
 
@@ -66,7 +66,10 @@ cust_ords_prods_sells = cust_ords_prods %>%
 cust_ords_prods_sells_pays = cust_ords_prods_sells %>%
   left_join(order_payments, by = "order_id")
 
-full_df = cust_ords_prods_sells_pays %>%
+cust_ords_prods_sells_pays_reviews = cust_ords_prods_sells_pays %>%
+  left_join(order_reviews, by = "order_id")
+
+full_df = cust_ords_prods_sells_pays_reviews %>%
   left_join(cat_name_translation, by = "product_category_name")
 
 ```
