@@ -131,6 +131,23 @@ customer_tracts_simple = customer_tracts %>%
 ```
 
 ```{r}
+colnames(seller_tracts_simple)
+```
+
+```{r}
+# Rename cols to differentiate seller from customer geo data
+
+cols_to_rename = setdiff(colnames(seller_tracts_simple), "seller_id")
+seller_tracts_simple = seller_tracts_simple %>%
+  rename_with(~paste("sell", ., sep="_"),all_of(cols_to_rename))
+
+cols_to_rename = setdiff(colnames(customer_tracts_simple), "customer_id")
+customer_tracts_simple = customer_tracts_simple %>%
+  rename_with(~paste("cust", ., sep = "_"), all_of(cols_to_rename))
+
+```
+
+```{r}
 # Fill NAs and then Merge joined tracts into DF
 
 full_df$seller_id[is.na(full_df$seller_id)] = "NA_placeholder"
@@ -141,6 +158,11 @@ full_df_joined = full_df %>%
   left_join(seller_tracts_simple, by = "seller_id")
 
 ```
+```{r}
+str(full_df_joined)
+```
+
+
 ```{r}
 # Now working to add population, income and income per capita to full_df
 
@@ -168,14 +190,27 @@ tracts_percap = left_join(tract_basico, tract_income, by = "code_tract") %>%
 
 tracts_percap = as.data.frame(tracts_percap)
 
-# rename code_tract.x to code_tract in full_df_joined
-full_df_joined = full_df_joined %>%
-  rename(code_tract = code_tract.x)
-
+# Join customer data 
 
 full_censo_df = full_df_joined %>%
-  left_join(tracts_percap, by = "code_tract")
+  left_join(tracts_percap, by = c("cust_code_tract" = "code_tract")) %>% 
+  rename_with(~paste("cust", ., sep = "_"), starts_with("V002")) %>%
+  rename_with(~paste("cust", ., sep = "_"), starts_with("V003")) %>%
+  rename_with(~paste("cust", ., sep = "_"), starts_with("income_pc"))
+            
+# Join seller data
+
+full_censo_df = full_censo_df %>%
+  left_join(tracts_percap, by = c("sell_code_tract" =  "code_tract")) %>%
+  rename_with(~paste("sell", ., sep = "_"), starts_with("V002")) %>%
+  rename_with(~paste("sell", ., sep = "_"), starts_with("V003")) %>%
+  rename_with(~paste("sell", ., sep = "_"), starts_with("income_pc"))
 ```
+
+```{r}
+str(full_censo_df)
+```
+
 
 ```{r}
 # Now run checks on full_censo_df to make sure merged properly
