@@ -1,0 +1,331 @@
+```{r}
+# Initial EDA of Olist Dataset (after creating major dataframes)
+```
+
+```{r}
+#Load dataframe with everything
+
+readRDS("C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\full_censo_df.rds")
+
+colnames(full_censo_df)
+```
+```{r}
+str(full_censo_df$order_purchase_timestamp)
+```
+
+```{r}
+# Starting with Revenue EDA
+# R1 - Revenue over time
+
+
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+getwd()
+
+order_payments = read.csv("../data/olist_order_payments_dataset.csv")
+
+delivered_orders = orders %>%
+  filter(order_status == "delivered")
+
+delivered_orders_payments = delivered_orders %>%
+  left_join(order_payments, by = "order_id")
+
+R1_rev_prep = delivered_orders_payments %>%
+  group_by(order_id) %>%
+  summarise(revenue = sum(payment_value), order_purchase_timestamp = first(order_purchase_timestamp))
+
+R1_rev_prep$order_purchase_timestamp = as.Date(R1_rev_prep$order_purchase_timestamp)
+
+R1_rev_prep_monthly = R1_rev_prep %>%
+  mutate(
+    year = year(order_purchase_timestamp),
+    month = month(order_purchase_timestamp)
+  )
+
+R1_rev_monthly = R1_rev_prep_monthly %>%
+  group_by(year, month) %>%
+  summarise(monthly_revenue = sum(revenue))
+
+R1_rev_monthly$date = as.Date(paste(R1_rev_monthly$year, sprintf("%02d", R1_rev_monthly$month), "1", sep = "-"))
+
+format_brl = function(x){
+  paste("R$", formatC(x, format = "f", big.mark = ".", decimal.mark = ",", digits = 2))
+}
+
+# Plot R1 Total Revenue over Time
+ggplot(R1_rev_monthly, aes(x = date, y = monthly_revenue)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal()+
+  labs(title = "Total Monthly Revenue (Delivered Orders)", x = "Date", y = "Total Revenue" ) +
+  scale_y_continuous(labels = format_brl) +
+  theme(axis.text = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Calculate and Plot R2: MoM Contribution to Revenue Growth with AOV and Total Orders 
+
+R1_rev__MoM = R1_rev_monthly %>%
+  arrange(date) %>%
+  mutate(mom_growth = ifelse(is.na(lag(monthly_revenue)) | is.na(monthly_revenue),
+                        NA,
+                        (monthly_revenue / lag(monthly_revenue) -1) * 100))
+
+monthly_data = R1_rev_prep_monthly %>%
+  group_by(year,month) %>%
+  summarise(
+    total_revenue = sum(revenue),
+    total_orders = n(),
+    aov = total_revenue / total_orders
+  )
+
+monthly_data$date = as.Date(paste(monthly_data$year, sprintf("%02d", monthly_data$month), "1", sep = "-"))
+
+R2_data = merge(monthly_data, R1_rev__MoM[, c("date", "mom_growth")], by = "date")
+
+R2_data = R2_data %>%
+  arrange(date) %>%
+  mutate(
+    aov_growth = (aov / lag(aov) -1) * 100,
+    orders_growth = (total_orders / lag(total_orders) - 1) * 100, 
+    mom_growth
+  )
+
+filtered_R2 = R2_data %>%
+  filter(date >= as.Date("2017-02-01"))
+
+# Now transform and plot
+
+long_filtered_R2 = filtered_R2 %>%
+  select(date, aov_growth, orders_growth) %>%
+  pivot_longer(cols = c(aov_growth, orders_growth), names_to = "category", values_to = "value")
+
+ggplot() +
+  geom_line(aes(x = date, y = mom_growth), data = filtered_R2, color = "blue") +
+  geom_bar(aes(x = date, y = value, fill = category), data = long_filtered_R2, stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("red", "green")) +
+  labs(title = "MoM Growth with Contributions from AOV and Total Orders",
+       x = "Month",
+       y = "Value", 
+       fill = "Category") +
+  theme_minimal() +
+  theme(axis.text = element_text(angle = 45, hjust = 1))
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y")
+  
+```
+
+```{r}
+# Calculate 30 Day Revenue Forecast. Testing Forecast and Prophet Models. 
+
+library(forecast)
+library(prophet)
+library(Metrics)
+library(xts)
+
+# Create revenue and daily date DF
+
+ts_data = R1_rev %>%
+  mutate(date = as.Date(order_purchase_timestamp)) %>%
+  group_by(date) %>%
+  summarise(revenue = sum(revenue)) %>%
+  ungroup()
+
+# Fill in any missing dates with zero revenue
+
+all_dates <- seq.Date(from = as.Date("2016-01-01"), to = as.Date("2018-12-31"), by = "day")
+ts_data_full <- full_join(data.frame(date = all_dates), ts_data, by = "date") %>%
+  replace_na(list(revenue = 0))
+
+# Manually create TS object since errors
+
+days_since_start = as.numeric(ts_data_full$date - as.Date("2016-01-01")) + 1
+
+# Create TS object for daily data
+
+ts_object <- xts(ts_data_full$revenue, order.by = ts_data_full$date)
+
+
+# Define start of the test period
+
+test_start_date = as.Date("2018-06-01")
+test_start_index = as.numeric(test_start_date - as.Date("2016-01-01")) + 1
+
+# Check if the test start index is valid
+length_of_ts_object <- length(ts_object)  # Added: Calculate the length of ts_object
+cat("Length of ts_object: ", length_of_ts_object, "\n")  # Added: Print the length of ts_object
+
+
+# Set up train and test timeseries
+train_ts <- ts_object[paste("2016-01-01/", format(test_start_date - 1), sep = "")]
+test_ts <- ts_object[paste(format(test_start_date), "/", format(as.Date("2018-12-31")), sep = "")]
+
+# Print the first few entries of train_ts and test_ts
+cat("First few entries of train_ts: ", head(train_ts), "\n")
+cat("First few entries of test_ts: ", head(test_ts), "\n")
+
+# Fit ARIMA and forecast
+
+fit_arima = auto.arima(train_ts)
+
+summary(fit_arima)
+
+forecast_arima = forecast(fit_arima, h = length(test_ts))
+
+print(forecast_arima)
+
+# Convert values to numeric for accuracy measurements
+
+forecasted_values_numeric = as.numeric(forecast_arima$mean)
+
+actual_values = as.numeric(coredata(test_ts))
+
+# Calc forecast accuracy
+
+forecast_accuracy = forecast::accuracy(forecasted_values_numeric, actual_values)
+
+print(forecast_accuracy)
+
+# Prep data for Prophet
+
+prophet_data = ts_data_full %>%
+  rename(ds = date, y = revenue)
+
+train_prophet = filter(prophet_data, ds < test_start_date)
+test_prophet = filter(prophet_data, ds >= test_start_date)
+
+# Fit Prophet
+
+m_prophet = prophet(train_prophet)
+
+# Make a future DF for test period
+
+future_dates = make_future_dataframe(m_prophet, periods = nrow(test_prophet), freq = "day")
+
+# Forecast with Prophet
+
+forecast_prophet = predict(m_prophet, future_dates)
+
+# Extract values and evaluate prediction
+
+prophet_predictions = filter(forecast_prophet, ds >= test_start_date)
+
+prophet_mae = mean(abs(prophet_predictions$yhat - test_prophet$y))
+
+print(prophet_mae)
+
+# Now plotting real data and both forecasts
+library(tidyr)
+library(ggplot2)
+
+plot_data = data.frame(
+  date = test_prophet$ds,
+  Actual = test_prophet$y,
+  Prophet = as.numeric(prophet_predictions$yhat)[1:length(test_prophet$y)]
+)
+
+plot_data_long = plot_data %>%
+  pivot_longer(cols = c(Actual, Prophet), names_to = "Model", values_to = "Revenue")
+
+ggplot(plot_data_long, aes(x = date, y = Revenue, color = Model)) +
+  geom_line() +
+  labs(title = "Revenue Forecast Comparison",
+       x = "Date",
+       y = "Revenue",
+       color = "Model") +
+  theme_minimal()
+
+```
+```{r}
+library(prophet)
+library(dplyr)
+library(ggplot2)
+
+# Filter ts_data_full to only dates with actual revenue data
+actual_data <- ts_data_full %>%
+  filter(revenue > 0) %>%
+  mutate(Model = "Actual")
+
+# Define last date of actual revenue data
+last_actual_data_date <- max(actual_data$date)
+
+# Fit Prophet model using actual revenue data
+m_prophet <- prophet(actual_data %>% select(ds = date, y = revenue))
+
+# Create a future dataframe for 60 days beyond the last actual revenue date
+future_dates <- make_future_dataframe(m_prophet, periods = 60, include_history = FALSE)
+
+# Forecast with Prophet 
+forecast_prophet <- predict(m_prophet, future_dates)
+
+# Prep forecast data for plotting
+forecast_data <- forecast_prophet %>%
+  select(date = ds, Revenue = yhat) %>%
+  mutate(Model = "Forecast")
+
+# Combine actual and forecast data for plotting
+plot_data <- rbind(
+  actual_data %>% select(date, Revenue = revenue, Model),
+  forecast_data
+)
+
+# Plot 
+ggplot(plot_data, aes(x = date, y = Revenue, color = Model)) +
+  geom_line() +
+  scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
+  labs(title = "Revenue Forecast for the Next 60 Days",
+       x = "Date",
+       y = "Revenue",
+       color = "Model") +
+  theme_minimal()
+
+
+```
+
+```{r}
+# Next I'll look at the number of unique products purchased and number of unique customers purchasing as Unique_Prods_Custs
+
+# First I just want delivered orders from cust_orditems that has all the data I need for this
+cust_orditems_delivered = cust_orditems %>%
+  filter(order_status == "delivered")
+
+
+# Then I want to group by month and count unique products and unique unique_customer_ids
+cust_orditems_delivered$order_purchase_timestamp = as.Date(cust_orditems_delivered$order_purchase_timestamp)
+
+cust_orditems_delivered = cust_orditems_delivered %>%
+  mutate(month_as_date = floor_date(order_purchase_timestamp, "month"))
+
+unique_prods_custs_monthly = cust_orditems_delivered %>%
+  group_by(month_as_date) %>%
+  summarise(unique_prods = n_distinct(product_id),
+            unique_custs = n_distinct(customer_unique_id)) %>%
+  arrange(month_as_date)
+
+
+# Transform & Plot
+long_data = unique_prods_custs_monthly %>%
+  pivot_longer(
+    cols = c(unique_prods, unique_custs),
+    names_to = "category",
+    values_to = "value"
+  )
+
+ggplot(long_data, aes(x = month_as_date, y = value, color = category)) +
+  geom_line() +
+  labs(title = "Unique Products and Customers By Month",
+       x = "Month",
+       y = "Count",
+       color = "Category") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+```
+
+```{r}
+getwd()
+```
+
