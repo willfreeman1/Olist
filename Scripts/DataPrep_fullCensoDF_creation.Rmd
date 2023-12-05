@@ -244,8 +244,25 @@ na_comparison = data.frame(
 
 na_comparison
 ```
+```{r}
+# Check for duplications
+
+full_censo_dupes = full_censo_df[duplicated(full_censo_df),]
+num_duplicates = nrow(full_censo_dupes)
+print(num_duplicates)
+
+```
+```{r}
+# Since many rows are nearly dupes except for payment sequential and payment value, checking if these are the only fields that make many rows unique
+
+other_cols = setdiff(names(full_censo_df), c("payment_sequential", "payment_value"))
+
+
+```
 
 ```{r}
 saveRDS(full_censo_df, "C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\full_censo_df.rds" )
+
+write.csv(full_censo_df, "C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\full_censo_df.csv", row.names = FALSE)
 ```
 
