@@ -326,6 +326,85 @@ ggplot(long_data, aes(x = month_as_date, y = value, color = category)) +
 ```
 
 ```{r}
+# Next for P1 of Dashboard I want to show purchase day of week and time of day histograms
+
+library(ggplot2)
 getwd()
+
+orders = read.csv("../data/olist_orders_dataset.csv")
+
+# Make the timestamp a real timestamp
+orders$order_purchase_timestamp = as.POSIXct(orders$order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S")
+
+# Extract day of week
+
+orders$weekday = weekdays(orders$order_purchase_timestamp)
+
+orders$weekday = factor(orders$weekday, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+
+# Create table of day counts
+
+day_counts = table(orders$weekday)
+print(day_counts)
+
+# Plot DoW Histogram
+
+par(mar=c(7,4,4,2) + 0.1)
+daycount_bar = barplot(day_counts, main = "Order Frequency by Day of the Week", ylab = "Frequency", xaxt = "n", col = "blue")
+axis(1, at = daycount_bar, labels = names(day_counts), las = 2)
+par(mar=c(5, 4, 4, 2) + 0.1)
+
+
+```
+
+```{r}
+# The above is not so intersting. Let's try seeing if the DoW changes over time
+
+library(dplyr)
+library(ggplot2)
+
+orders$year = format(orders$order_purchase_timestamp, "%Y")
+orders$month = format(orders$order_purchase_timestamp, "%m")
+
+order_timing = orders %>%
+  group_by(year, month, weekday) %>%
+  summarize(Frequency = n(), .groups = "drop")
+
+# Calculate each weekday's percent of total orders per month
+
+ords_monthly = order_timing %>%
+  group_by(year, month) %>%
+  summarize(monthly_orders = sum(Frequency),.groups = "drop")
+
+order_timing_totals = order_timing %>%
+  left_join(ords_monthly, by = c("year", "month"))
+
+order_timing_totals = order_timing_totals %>%
+  mutate(percentage = (Frequency / monthly_orders) * 100)
+
+# Prep line plot
+
+order_timing_totals$year = as.factor(order_timing_totals$year)
+order_timing_totals$month = as.factor(order_timing_totals$month)
+
+order_timing_totals$year_month = paste(order_timing_totals$year,order_timing_totals$month, sep = "-" )
+
+order_timing_totals$year_month = factor(order_timing_totals$year_month)
+
+spread_labels = order_timing_totals$year_month %in% order_timing_totals$year_month[seq(1, nrow(order_timing_totals), by = 12)]
+
+# Plot
+ggplot(order_timing_totals, aes(x = year_month, y = percentage, group = weekday, color = weekday)) +
+  geom_line() +
+  scale_y_continuous(limits = c(0, 35)) +
+  scale_x_discrete(breaks = order_timing_totals$year_month[spread_labels]) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.text.x.bottom = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(title = "Percentage of Total Orders by Weekday",
+       x = "Date",
+       y = "Percent",
+       color = "Weekday") +
+  theme_minimal()
+
 ```
 
