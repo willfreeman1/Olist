@@ -1,0 +1,86 @@
+---
+title: RFM
+output: html_notebook
+---
+```{r}
+RFM_DF = ord_cust_pay_geo_prod
+```
+
+```{r}
+# Convert order timestam to datetime
+head(RFM_DF$order_purchase_timestamp)
+
+RFM_DF$order_purchase_timestamp <- as.character(RFM_DF$order_purchase_timestamp)
+
+
+RFM_DF$order_purchase_timestamp = as.POSIXct(RFM_DF$order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S")
+
+str(RFM_DF$order_purchase_timestamp)
+
+```
+```{r}
+# Calc Recency
+
+# Find the most recent purchase date in the dataset
+most_recent_purchase <- max(RFM_DF$order_purchase_timestamp, na.rm = TRUE)
+
+# Calculate Recency
+recency_df <- RFM_DF %>%
+  group_by(customer_unique_id) %>%
+  summarize(LastPurchaseDate = max(order_purchase_timestamp, na.rm = TRUE)) %>%
+  mutate(Recency = as.numeric(difftime(most_recent_purchase, LastPurchaseDate, units = "days")))
+
+# View the first few rows
+head(recency_df)
+
+
+```
+
+```{r}
+# Cacl Frequency
+library(dplyr)
+
+frequency_df = RFM_DF %>%
+  group_by(customer_unique_id) %>%
+  summarize(Frequency = n_distinct(order_id))
+
+summary(frequency_df)
+```
+
+```{r}
+# Calc Monetary
+
+monetary_df = RFM_DF %>%
+  group_by(customer_unique_id) %>%
+  summarize(Monetary = sum(payment_value, na.rm = TRUE))
+
+summary(monetary_df)
+  
+  
+```
+
+```{r}
+# Combine R,F & M DFs 
+rfm = recency_df %>%
+  left_join(frequency_df, by = "customer_unique_id") %>%
+  left_join(monetary_df, by = "customer_unique_id")
+
+head(rfm)
+
+```
+
+```{r}
+# Score customers based on quintiles
+
+rfm = rfm %>%
+  mutate(RecencyScore = ntile(Recency, 5),
+         FrequencyScore = ntile(Frequency, 5),
+         MonetaryScore = ntile(Monetary, 5))
+
+# Invert recency score so most recent have highest score
+rfm$RecencyScore = 6 - rfm$RecencyScore
+
+head(rfm)
+
+```
+
