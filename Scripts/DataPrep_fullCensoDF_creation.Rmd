@@ -256,7 +256,11 @@ print(num_duplicates)
 # Since many rows are nearly dupes except for payment sequential and payment value, checking if these are the only fields that make many rows unique
 
 other_cols = setdiff(names(full_censo_df), c("payment_sequential", "payment_value"))
+print(other_cols)
 
+
+```
+```{r}
 
 ```
 

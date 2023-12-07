@@ -359,9 +359,11 @@ par(mar=c(5, 4, 4, 2) + 0.1)
 
 ```{r}
 # The above is not so intersting. Let's try seeing if the DoW changes over time
-
 library(dplyr)
 library(ggplot2)
+
+orders = read.csv("../data/olist_orders_dataset.csv")
+
 
 orders$year = format(orders$order_purchase_timestamp, "%Y")
 orders$month = format(orders$order_purchase_timestamp, "%m")
@@ -406,5 +408,34 @@ ggplot(order_timing_totals, aes(x = year_month, y = percentage, group = weekday,
        color = "Weekday") +
   theme_minimal()
 
+```
+
+```{r}
+# The DoW over time didn't show much so back to regular all time view for order time of day
+
+# First extract the hour from timestamps
+
+orders$hour = as.numeric(format(orders$order_purchase_timestamp, "%H"))
+
+# Then categorize hours into parts of the day
+
+orders$time_of_day = cut(orders$hour,
+                         breaks = c(-Inf, 6, 12, 18, 24),
+                         labels = c("Early Morning", "Morning", "Afternoon", "Evening"),
+                         right = FALSE)
+
+# Create time of day table
+
+time_of_day_counts = table(orders$time_of_day)
+
+# Plot
+par(mar= c(7,4,4,2) + 0.1)
+time_of_day_bar = barplot(time_of_day_counts, main = "Order Frequency By Time of Day", ylab = "Frequency", xaxt = "n", col = "blue")
+axis(1, at = time_of_day_bar, labels = names(time_of_day_counts), las = 2)
+par(mar = c(5,4,4,2) + 0.1)
+```
+
+```{r}
+saveRDS(orders, "C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\orders_with_timing.rds" )
 ```
 
