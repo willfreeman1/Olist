@@ -83,4 +83,252 @@ rfm$RecencyScore = 6 - rfm$RecencyScore
 head(rfm)
 
 ```
+```{r}
+write.csv(ord_cust_pay_geo, "ord_cust_pay_geo.csv")
+```
+
+```{r}
+# Now start calculating features for correlation to RFM score
+# Starting with total spend per customer
+total_spend = ord_cust_pay_geo %>%
+  group_by(customer_unique_id) %>%
+  summarize(total_spend = sum(payment_value))
+
+# Orders per customer
+num_orders = ord_cust_pay_geo %>%
+  group_by(customer_unique_id) %>%
+  summarize(num_orders = n_distinct(order_id))
+
+# AOV per customer
+aov_cust = total_spend %>%
+  left_join(num_orders, by = "customer_unique_id") %>%
+  mutate(aov = total_spend / num_orders)
+
+
+str(total_spend)
+```
+
+```{r}
+# Calculate avg installments per cust
+
+ord_cust = left_join(orders, customers, by = "customer_id")
+
+ord_cust_pay = left_join(ord_cust, order_payments, by = "order_id")
+
+installments_per_cust = ord_cust_pay %>%
+  group_by(customer_unique_id) %>%
+  summarize(avg_installments = mean(payment_installments))
+
+str(installments_per_cust)
+
+```
+
+```{r}
+# Calculate payment types used by customer
+
+payment_types_cust = ord_cust_pay %>%
+  group_by(customer_unique_id) %>%
+  summarize(distinct_pay_types = toString(unique(payment_type)))
+
+str(payment_types_cust)
+  
+```
+
+```{r}
+# Add categorical features of customer zip, city and state
+library(stringr)
+
+ord_cust_pay = ord_cust_pay %>%
+  mutate(customer_zip_code_prefix = str_pad(customer_zip_code_prefix, width = 5, side = "left", pad = "0"),
+         customer_zip_code_prefix = as.factor(customer_zip_code_prefix),
+         customer_city = as.factor(customer_city),
+         customer_state = as.factor(customer_state)
+  )
+
+# ord_cust_pay = ord_cust_pay %>%
+#   select(-custoomer_state)
+```
+
+```{r}
+# Calculate product categories purchased per customer
+# First need to add cat name in English
+
+ord_cust_pay_geo_prod_cat = left_join( ord_cust_pay_geo_prod, cat_name_translation, by = "product_category_name")
+
+cats_per_cust = ord_cust_pay_geo_prod_cat %>%
+  group_by(customer_unique_id) %>%
+  summarise(distinct_cats = toString(unique(product_category_name_english)))
+
+```
+
+```{r}
+# now calc reviews features
+
+# first add reviews data to ord_cust
+ord_cust_rev = left_join(ord_cust, order_reviews, by = "order_id")
+
+# Calc reviews per customer
+reviews_per_cust = ord_cust_rev %>%
+  group_by(customer_unique_id) %>%
+  summarise(reviews_per_customer = n_distinct(review_id))
+
+summary(reviews_per_cust)
+
+# Avg review score per customer
+review_score_per_cust = ord_cust_rev %>%
+  group_by(customer_unique_id) %>%
+  summarise(avg_review_score_per_customer = mean(review_score))
+
+summary(review_score_per_cust)
+
+```
+
+```{r}
+# Order Timing Per Customer 
+
+# First get year, month and day
+
+library(dplyr)
+library(ggplot2)
+
+# Load the orders data
+orders = read.csv("../data/olist_orders_dataset.csv")
+
+# Convert order timestamp to datetime 
+orders$order_purchase_timestamp = as.POSIXct(orders$order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S")
+
+# Extract year, month and weekday
+orders$year = format(orders$order_purchase_timestamp, "%Y")
+orders$month = format(orders$order_purchase_timestamp, "%m")
+orders$weekday = weekdays(orders$order_purchase_timestamp)
+
+# Convert weekday to a factor 
+orders$weekday = factor(orders$weekday, levels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+
+# Rename
+orders_with_timing = orders
+
+# Join customers to orders_with_timing
+
+ordtime_cust = left_join(orders_with_timing, customers, by = "customer_id")
+
+head(ordtime_cust)
+
+# Create features for most common order weekday and order month
+
+most_common_weekday = ordtime_cust %>%
+  group_by(customer_unique_id, weekday) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(customer_unique_id, desc(count)) %>%
+  group_by(customer_unique_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(customer_unique_id, most_common_weekday = weekday)
+
+most_common_month = ordtime_cust %>%
+  group_by(customer_unique_id, month) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(customer_unique_id, desc(count)) %>%
+  group_by(customer_unique_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(customer_unique_id, most_common_month = month)
+
+head(most_common_month)
+```
+```{r}
+# Calc customer zip code per capita income
+
+# First load data
+
+library(geobr)
+library(censobr)
+tracts = read_census_tract(code_tract = "all", year=2010)
+
+tract_basico <- read_tracts(year = 2010,
+                            dataset = "Basico", 
+                            showProgress = FALSE)
+
+tract_income <- read_tracts(year = 2010,
+                            dataset = "DomicilioRenda", 
+                            showProgress = FALSE)
+
+# select columns
+tract_basico <- tract_basico |> select('code_tract','V002')
+tract_income <- tract_income |> select('code_tract','V003')
+
+# merge
+tracts_df <- left_join(tract_basico, tract_income) |> collect()
+
+# calculate income per capita
+tracts_df <- tracts_df |> mutate(income_pc = V003 / V002)
+head(tracts_df)
+
+# Merge tracts with tracts_df
+
+tracts_pop_income = left_join(tracts, tracts_df, by = "code_tract")
+head(tracts_pop_income)
+
+```
+
+```{r}
+# Map lat lng to tracts
+
+# Convert full_df locations into spatial objects
+
+library(dplyr)
+library(sf)
+
+# filter out na rows for customer and seller lon/lat
+
+customer_locations = ord_cust_pay_geo %>%
+  filter(!is.na(geolocation_lat) & !is.na(geolocation_lng)) %>%
+  st_as_sf(coords = c("geolocation_lng", "geolocation_lat"), crs = 4326)
+
+st_crs(customer_locations)
+st_crs(tracts)
+
+# Transform geolocations to matching formats
+customer_locations = st_transform(customer_locations, crs = 4674)
+
+# Remove any errors
+tracts = st_make_valid((tracts))
+
+# Join tracts with locations
+customer_tracts = st_join(customer_locations, tracts)
+
+# Join customer_tracts with tracts_df to get income, pop and income pc
+
+customer_tracts_incomepc = left_join(customer_tracts, tracts_df, by = "code_tract")
+
+customer_incomepc = customer_tracts_incomepc %>%
+  group_by(customer_unique_id) %>%  
+  summarise(mean(income_pc))
+
+# Also get urban or rural 
+
+Rprof()
+# Create a subset with only necessary columns
+df_subset <- select(customer_tracts_incomepc, customer_unique_id, zone)
+
+# Convert customer_unique_id to a factor if it's currently a string
+df_subset$customer_unique_id <- as.factor(df_subset$customer_unique_id)
+
+# Check if any customer moved from urban to rural or visa versa
+customer_zone_count = df_subset %>%
+  group_by(customer_unique_id) %>%
+  summarize(zone_types = n_distinct(zone), .groups = "drop") %>%
+  filter(zone_types > 1)
+
+str(customer_zone_count)
+
+Rprof(Null)
+summary(Rprof)
+
+cust_zone_feature = customer_tracts_incomepc %>%
+  group_by(customer_unique_id) %>%
+  summarise(urban_rural = first(zone))
+
+
+```
 
