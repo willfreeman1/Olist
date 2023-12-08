@@ -709,28 +709,197 @@ duplicate_ids = c("004b45ec5c64187465168251cd1c9c2f",
 
 full_cust_features = full_cust_features %>%
   filter(!(customer_unique_id %in% duplicate_ids))
+
+saveRDS(full_cust_features, "full_cust_features_exdupes")
+```
+
+```{r}
+
+# Check out missing values to decide what to do with them
+
+# Summarize for each column
+missing_vals = sapply(full_cust_features, function(x) sum(is.na(x)))
+print(missing_vals)
+
+# Filter for rows with NAs
+
+rows_with_na = full_cust_features[!complete.cases(full_cust_features),]
+
+# Main missing vals in income_pc and urban_rural so check if those are repeated zip codes 
+
+# Rename mean(income_pc)
+
+full_cust_features = full_cust_features %>%
+  rename(mean_income_pc = 'mean(income_pc)')
+
+# Check if missing income and zone data is for every row of a given zip code prefix
+
+# Calculate aggregated values for each zip_code_prefix
+zip_code_aggregates <- full_cust_features %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarize(
+    avg_mean_income_pc = mean(mean_income_pc, na.rm = TRUE),
+    common_urban_rural = first(urban_rural)  # Assuming Mode is a function you have to define to find the most common value
+  )
+# Joining the aggregated values
+full_cust_features<- full_cust_features %>%
+  left_join(zip_code_aggregates, by = "customer_zip_code_prefix")
+
+# Impute missing values
+full_cust_features <- full_cust_features %>%
+  mutate(
+    mean_income_pc = ifelse(is.na(mean_income_pc), avg_mean_income_pc, mean_income_pc),
+    urban_rural = ifelse(is.na(urban_rural), common_urban_rural, urban_rural)
+  )
+
+full_cust_features <- full_cust_features %>%
+  select(-avg_mean_income_pc, -common_urban_rural)
+
+# Check NAs again
+
+missing_vals = sapply(full_cust_features, function(x) sum(is.na(x)))
+print(missing_vals)
+
+# Decided to delete NAs since they are a small proportion of the records
+
+full_cust_features_cleaned = na.omit(full_cust_features)
+
+```
+
+```{r}
+# Remove duplicated cols
+
+# confirm duplicated cols
+
+total_spend_identical = identical(full_cust_features_cleaned$total_spend.x, full_cust_features_cleaned$total_spend.y)
+
+num_orders_identical = identical(full_cust_features_cleaned$num_orders.x, full_cust_features_cleaned$num_orders.y)
+
+print(total_spend_identical)
+print(num_orders_identical)
+
+# Remove duplicated cols and rename columns
+
+full_cust_features_cleaned = full_cust_features_cleaned %>%
+  select(-total_spend.y, -num_orders.y)
+
+names(full_cust_features_cleaned)[names(full_cust_features_cleaned) == "total_spend.x"] = "total_spend"
+names(full_cust_features_cleaned)[names(full_cust_features_cleaned) == "num_orders.x"] = "num_orders"
+```
+
+```{r}
+# Add RFM scores to full_cust_features_cleaned and create final_analysis_df
+
+final_analysis_df = left_join(full_cust_features_cleaned, final_cust_RFM, by = "customer_unique_id")
+
 ```
 
 
 ```{r}
-# Since there are many features we'll first check for multicollinearity
+# Need to convert numeric data to sparse matrix to make dataset manageable size
+library(Matrix)
+library(dplyr)
+
+final_analysis_numeric = final_analysis_df %>% select_if(is.numeric)
+
+final_analysis_numeric_exRFM = final_analysis_numeric %>%
+  select(-RFM_avg)
+
+sparse_analysis_df = Matrix(as.matrix(final_analysis_numeric), sparse = TRUE)
+
+```
+
+
+```{r}
+# Set up data to run LASSO and Ridge Regression for Dimensionality Reduction
 
 library(caret)
 library(glmnet)
 
-# Include only numeric variables
-numeric_features = full_cust_features %>% select_if(is.numeric)
 
 # Standardize the numeric features
 
-standardized_features = preProcess(numeric_features, method = c("center", "scale"))
-normalized_data = predict(standardized_features, numeric_features)
+# Calc mean and stdev
 
-full_cust_features_RFM = full_cust_features %>%
-  left_join(final_cust_RFM, by = "customer_unique_id")
+means = apply(final_analysis_numeric, 2, mean, na.rm = TRUE)
+sds = apply(final_analysis_numeric, 2, sd, na.rm = TRUE)
 
-final_analysis_df = full_cust_features_RFM %>%
-  filter(!is.na(RFM_avg))
+# Standardize the sparse matrix
+
+sparse_analysis_df = as(sparse_analysis_df, "dgCMatrix")
+
+for(i in 1:ncol(sparse_analysis_df)) {
+  sparse_analysis_df[,i] = (sparse_analysis_df[,i] - means[i]) / sds[i]
+}
+
+summary(sparse_analysis_df)
+
+```
+
+```{r}
+# Run LASSO
+
+response_var = final_analysis_df$RFM_avg
+
+response_var = as.vector(response_var)
+
+cv_lasso = cv.glmnet(sparse_analysis_df, response_var, alpha = 1)
+
+cv_ridge = cv.glmnet(sparse_analysis_df, response_var, alpha = 0)
+
+# Extract best lambda value
+
+
+best_lambda_lasso = cv_lasso$lambda.min
+best_lambda_ridge = cv_ridge$lambda.min
+
+# Extract coefficients of best lambdas
+
+coef_lasso = coef(cv_lasso, s = "lambda.min")
+coef_ridge = coef(cv_ridge, s = "lambda.min")
+
+#Print coefficients
+
+print(coef_lasso)
+print(coef_ridge)
+
+# Plot the cross-validation error
+plot(cv_lasso)
+plot(cv_ridge)
+
+# More detailed look at coefficients
+coef_lasso_df = as.data.frame(coef_lasso)
+coef_ridge_df = as.data.frame(coef_ridge)
+
+write.csv(coef_lasso_df, "coef_lasso_df.csv")
+write.csv(coef_ridge_df, "coef_ridge_df.csv")
+
+```
+
+```{r}
+
+# Convert dgCMatrix to regular matrix
+regular_matrix <- as.matrix(sparse_analysis_df)
+
+# Get coefficients for LASSO at the best lambda
+lasso_coefs <- predict(cv_lasso, s = "lambda.min", type = "coefficients")
+
+# Coefficients are returned as a list, convert to a named vector
+lasso_coefs_vector <- as.vector(lasso_coefs[[1]])
+
+# Create a data frame of feature names and their corresponding coefficients
+feature_names <- row.names(lasso_coefs)
+lasso_coefs_df <- data.frame(Feature = feature_names, Coefficient = lasso_coefs_vector)
+
+# Do the same for Ridge Regression
+ridge_coefs <- predict(cv_ridge, s = "lambda.min", type = "coefficients")
+ridge_coefs_vector <- as.vector(ridge_coefs[[1]])
+ridge_coefs_df <- data.frame(Feature = feature_names, Coefficient = ridge_coefs_vector)
+
+# View the first few rows of the data frames
+head(lasso_coefs_df)
+head(ridge_coefs_df)
+
 
 ```
 

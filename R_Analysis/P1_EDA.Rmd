@@ -127,7 +127,7 @@ library(xts)
 
 # Create revenue and daily date DF
 
-ts_data = R1_rev %>%
+ts_data = R1_rev_prep %>%
   mutate(date = as.Date(order_purchase_timestamp)) %>%
   group_by(date) %>%
   summarise(revenue = sum(revenue)) %>%
@@ -364,9 +364,14 @@ library(ggplot2)
 
 orders = read.csv("../data/olist_orders_dataset.csv")
 
+orders$order_purchase_timestamp = as.POSIXct(orders$order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S")
+
 
 orders$year = format(orders$order_purchase_timestamp, "%Y")
 orders$month = format(orders$order_purchase_timestamp, "%m")
+orders$weekday = weekdays(orders$order_purchase_timestamp)
+
+orders$weekday = factor(orders$weekday, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
 
 order_timing = orders %>%
   group_by(year, month, weekday) %>%
@@ -407,6 +412,10 @@ ggplot(order_timing_totals, aes(x = year_month, y = percentage, group = weekday,
        y = "Percent",
        color = "Weekday") +
   theme_minimal()
+
+```
+```{r}
+
 
 ```
 
