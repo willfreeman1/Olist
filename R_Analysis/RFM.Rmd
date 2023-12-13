@@ -97,7 +97,8 @@ final_cust_RFM = customer_RFM_filtered %>%
 
 
 ```{r}
-write.csv(ord_cust_pay_geo, "ord_cust_pay_geo.csv")
+saveRDS(final_cust_RFM, "final_cust_RFM.rds")
+saveRDS(rfm, "all_rfm_compenents.rds")
 ```
 
 ```{r}
@@ -796,16 +797,62 @@ final_analysis_df = left_join(full_cust_features_cleaned, final_cust_RFM, by = "
 
 
 ```{r}
-# Need to convert numeric data to sparse matrix to make dataset manageable size
+# Create predictors dataframe
+
+# First remove identifier and outcome variables
+df_for_encoding = final_analysis_df %>% select(-customer_unique_id)
+
+# Save the outcome variable for later use in the model
+response_variable = df_for_encoding$RFM_avg
+
+df_for_encoding <- df_for_encoding %>% select(-RFM_avg)
+
+# Convert categorical factors to dummy variables or one-hot encode
+predictors_matrix = model.matrix(~ ., data = df_for_encoding)
+
+sparse_predictors = Matrix(predictors_matrix, sparse = TRUE)
+
+```
+
+```{r}
+saveRDS(final_analysis_df, "final_analysis_df.rds")
+saveRDS(df_for_encoding, "df_for_encoding.rds")
+response_var
+```
+
+
+```{r}
+# Standardize the numeric features
+
+num_features_indices = which(sapply(df_for_encoding, is.numeric))
+
+# Standardize by subtracting means and dividng by sds using a for loop
+
+for (i in num_features_indices) {
+  # Standardize by subtracting the mean and dividing by the standard deviation
+  sparse_predictors[, i] <- (sparse_predictors[, i] - mean(sparse_predictors[, i])) / sd(sparse_predictors[, i])
+}
+
+```
+
+```{r}
 library(Matrix)
-library(dplyr)
 
-final_analysis_numeric = final_analysis_df %>% select_if(is.numeric)
+# Assuming 'sparse_predictors' is your sparse matrix
+# and 'num_features_indices' are the indices of numeric features
 
-final_analysis_numeric_exRFM = final_analysis_numeric %>%
-  select(-RFM_avg)
-
-sparse_analysis_df = Matrix(as.matrix(final_analysis_numeric), sparse = TRUE)
+# Perform the standardization in a loop but optimized for sparse matrix
+for (i in num_features_indices) {
+    # Extract the column as a dense vector
+    column_data <- as.vector(sparse_predictors[, i])
+    
+    # Compute mean and standard deviation
+    column_mean <- mean(column_data)
+    column_sd <- sd(column_data)
+    
+    # Standardize the column
+    sparse_predictors[, i] <- (sparse_predictors[, i] - column_mean) / column_sd
+}
 
 ```
 
@@ -867,38 +914,14 @@ print(coef_ridge)
 plot(cv_lasso)
 plot(cv_ridge)
 
-# More detailed look at coefficients
-coef_lasso_df = as.data.frame(coef_lasso)
-coef_ridge_df = as.data.frame(coef_ridge)
 
-write.csv(coef_lasso_df, "coef_lasso_df.csv")
-write.csv(coef_ridge_df, "coef_ridge_df.csv")
 
 ```
 
 ```{r}
 
-# Convert dgCMatrix to regular matrix
-regular_matrix <- as.matrix(sparse_analysis_df)
+# Deciding to use lambda.1se because we need interpretable and explainable results so I want fewer features
 
-# Get coefficients for LASSO at the best lambda
-lasso_coefs <- predict(cv_lasso, s = "lambda.min", type = "coefficients")
-
-# Coefficients are returned as a list, convert to a named vector
-lasso_coefs_vector <- as.vector(lasso_coefs[[1]])
-
-# Create a data frame of feature names and their corresponding coefficients
-feature_names <- row.names(lasso_coefs)
-lasso_coefs_df <- data.frame(Feature = feature_names, Coefficient = lasso_coefs_vector)
-
-# Do the same for Ridge Regression
-ridge_coefs <- predict(cv_ridge, s = "lambda.min", type = "coefficients")
-ridge_coefs_vector <- as.vector(ridge_coefs[[1]])
-ridge_coefs_df <- data.frame(Feature = feature_names, Coefficient = ridge_coefs_vector)
-
-# View the first few rows of the data frames
-head(lasso_coefs_df)
-head(ridge_coefs_df)
 
 
 ```

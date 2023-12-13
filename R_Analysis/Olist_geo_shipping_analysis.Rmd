@@ -1,0 +1,138 @@
+---
+title: "Olist_geo_shipping_analysis"
+output: html_notebook
+---
+
+```{r}
+# Data Prep
+library(stringr)
+
+# First we need to add seller's data to our DF
+
+geo_df = ord_cust_pay_geo_prod_cat %>%
+  left_join(sellers, by = "seller_id")
+
+# Next we need to make seller zip code prefixes start with 0 
+
+geo_df = geo_df %>%
+  mutate(seller_zip_code_prefix = str_pad(seller_zip_code_prefix, width = 5, side = "left", pad = "0"))
+
+
+# Next change current geolocation columns to customer_geolocation
+
+geo_df = geo_df %>%
+  rename(cust_geo_lat = geolocation_lat,
+         cust_geo_lng = geolocation_lng,
+         cust_geo_city = geolocation_city,
+         cust_geo_state = geolocation_state)
+  
+# Next join geolocation again but based on seller info
+
+geo_df = geo_df %>%
+  left_join(geolocation, by = c("seller_zip_code_prefix" = "geolocation_zip_code_prefix"))
+
+# Next rename to specify seller geolocation
+geo_df = geo_df %>%
+  rename(sell_geo_lat = geolocation_lat,
+         sell_geo_lng = geolocation_lng,
+         sell_geo_city = geolocation_city,
+         sell_geo_state = geolocation_state)
+
+# Check for instances when customer and seller cities and states don't match geolocation data
+
+mismatched_geos_citystate = geo_df %>%
+  filter(
+    (seller_city != sell_geo_city | seller_state != sell_geo_state) | (customer_city != cust_geo_city | customer_state != cust_geo_state)
+  )
+
+mismatched_geos_state = geo_df %>%
+  filter(seller_state != sell_geo_state | customer_state != cust_geo_state)
+
+dim(mismatched_geos_citystate)
+dim(mismatched_geos_state)
+dim(geo_df)
+
+```
+
+```{r}
+# Does shipping cost (absolute or share of order value) impact sales? First just check if they correlate
+
+df = order_items
+
+df$shipping_share_price = (df$freight_value / df$price) * 100
+
+absolute_corr = cor(df$freight_value, df$price, use = "complete.obs")
+
+share_corr = cor(df$shipping_share_price, df$price, use = "complete.obs")
+
+print(paste("Correlation (Absolute Shipping Cost):", absolute_corr))
+print(paste("Correlation (Share Shipping Cost):", share_corr))
+
+
+```
+
+
+```{r}
+#Data prep cont.
+
+
+# Next add population, income and mean_income_pc for each zip code
+
+library(dplyr)
+library(sf)
+
+# filter out na rows for customer and seller lon/lat
+
+geo_df = geo_df %>%
+  filter(!is.na(geolocation_lat) & !is.na(geolocation_lng)) %>%
+  st_as_sf(coords = c("geolocation_lng", "geolocation_lat"), crs = 4326)
+
+st_crs(customer_locations)
+st_crs(tracts)
+
+# Transform geolocations to matching formats
+customer_locations = st_transform(customer_locations, crs = 4674)
+
+# Remove any errors
+tracts = st_make_valid((tracts))
+
+# Join tracts with locations
+customer_tracts = st_join(customer_locations, tracts)
+
+# Join customer_tracts with tracts_df to get income, pop and income pc
+
+customer_tracts_incomepc = left_join(customer_tracts, tracts_df, by = "code_tract")
+
+customer_tracts_incomepc <- as.data.frame(customer_tracts_incomepc)
+
+customer_incomepc = customer_tracts_incomepc %>%
+  group_by(customer_unique_id) %>%  
+  summarise(mean(income_pc))
+
+# Also get urban or rural 
+
+# Create a subset with only necessary columns
+df_subset <- select(customer_tracts_incomepc, customer_unique_id, zone)
+
+# Convert customer_unique_id to a factor if it's currently a string
+df_subset$customer_unique_id <- as.factor(df_subset$customer_unique_id)
+
+if ("sf" %in% class(df_subset)) {
+  df_subset <- st_set_geometry(df_subset, NULL)
+}
+
+# Now convert df_subset to a regular dataframe
+df_subset <- as.data.frame(df_subset)
+
+# Convert sf object to a regular dataframe
+df_subset <- as.data.frame(df_subset)
+
+# Check if any customer moved from urban to rural or visa versa
+customer_zone_count = df_subset %>%
+  group_by(customer_unique_id) %>%
+  summarize(zone_types = n_distinct(zone), .groups = "drop") %>%
+  filter(zone_types > 1)
+
+str(customer_zone_count)
+```
+

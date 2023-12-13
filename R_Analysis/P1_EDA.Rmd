@@ -2,16 +2,6 @@
 # Initial EDA of Olist Dataset (after creating major dataframes)
 ```
 
-```{r}
-#Load dataframe with everything
-
-readRDS("C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\full_censo_df.rds")
-
-colnames(full_censo_df)
-```
-```{r}
-str(full_censo_df$order_purchase_timestamp)
-```
 
 ```{r}
 # Starting with Revenue EDA
@@ -21,6 +11,7 @@ str(full_censo_df$order_purchase_timestamp)
 library(dplyr)
 library(lubridate)
 library(ggplot2)
+library(tidyr)
 
 getwd()
 
@@ -116,128 +107,108 @@ ggplot() +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y")
   
 ```
-
 ```{r}
-# Calculate 30 Day Revenue Forecast. Testing Forecast and Prophet Models. 
+# Assuming you have already read the datasets and performed the preliminary filtering as per your code
+library(zoo)
+library(scales)
 
-library(forecast)
-library(prophet)
-library(Metrics)
-library(xts)
+# Convert date to a quarter format
+R1_rev_monthly$quarter <- as.yearqtr(R1_rev_monthly$date)
 
-# Create revenue and daily date DF
+# Filter out the data before Q1 2017
+R1_rev_quarterly <- R1_rev_monthly %>%
+  filter(quarter >= as.yearqtr("2017 Q1"))
 
-ts_data = R1_rev_prep %>%
-  mutate(date = as.Date(order_purchase_timestamp)) %>%
-  group_by(date) %>%
-  summarise(revenue = sum(revenue)) %>%
-  ungroup()
+# Group data by quarter and calculate the total revenue per quarter
+R1_rev_quarterly <- R1_rev_quarterly %>%
+  group_by(quarter) %>%
+  summarise(quarterly_revenue = sum(monthly_revenue))
 
-# Fill in any missing dates with zero revenue
+# Calculate QoQ growth
+R1_rev_quarterly <- R1_rev_quarterly %>%
+  mutate(qoq_growth = (quarterly_revenue / lag(quarterly_revenue) - 1) * 100)
 
-all_dates <- seq.Date(from = as.Date("2016-01-01"), to = as.Date("2018-12-31"), by = "day")
-ts_data_full <- full_join(data.frame(date = all_dates), ts_data, by = "date") %>%
-  replace_na(list(revenue = 0))
+print(R1_rev_quarterly)
 
-# Manually create TS object since errors
+# Replace NA in the first row of qoq_growth with 0 or remove it
+R1_rev_quarterly <- R1_rev_quarterly %>%
+  mutate(qoq_growth = ifelse(is.na(qoq_growth), 0, qoq_growth))
 
-days_since_start = as.numeric(ts_data_full$date - as.Date("2016-01-01")) + 1
+print(R1_rev_quarterly)
 
-# Create TS object for daily data
-
-ts_object <- xts(ts_data_full$revenue, order.by = ts_data_full$date)
-
-
-# Define start of the test period
-
-test_start_date = as.Date("2018-06-01")
-test_start_index = as.numeric(test_start_date - as.Date("2016-01-01")) + 1
-
-# Check if the test start index is valid
-length_of_ts_object <- length(ts_object)  # Added: Calculate the length of ts_object
-cat("Length of ts_object: ", length_of_ts_object, "\n")  # Added: Print the length of ts_object
-
-
-# Set up train and test timeseries
-train_ts <- ts_object[paste("2016-01-01/", format(test_start_date - 1), sep = "")]
-test_ts <- ts_object[paste(format(test_start_date), "/", format(as.Date("2018-12-31")), sep = "")]
-
-# Print the first few entries of train_ts and test_ts
-cat("First few entries of train_ts: ", head(train_ts), "\n")
-cat("First few entries of test_ts: ", head(test_ts), "\n")
-
-# Fit ARIMA and forecast
-
-fit_arima = auto.arima(train_ts)
-
-summary(fit_arima)
-
-forecast_arima = forecast(fit_arima, h = length(test_ts))
-
-print(forecast_arima)
-
-# Convert values to numeric for accuracy measurements
-
-forecasted_values_numeric = as.numeric(forecast_arima$mean)
-
-actual_values = as.numeric(coredata(test_ts))
-
-# Calc forecast accuracy
-
-forecast_accuracy = forecast::accuracy(forecasted_values_numeric, actual_values)
-
-print(forecast_accuracy)
-
-# Prep data for Prophet
-
-prophet_data = ts_data_full %>%
-  rename(ds = date, y = revenue)
-
-train_prophet = filter(prophet_data, ds < test_start_date)
-test_prophet = filter(prophet_data, ds >= test_start_date)
-
-# Fit Prophet
-
-m_prophet = prophet(train_prophet)
-
-# Make a future DF for test period
-
-future_dates = make_future_dataframe(m_prophet, periods = nrow(test_prophet), freq = "day")
-
-# Forecast with Prophet
-
-forecast_prophet = predict(m_prophet, future_dates)
-
-# Extract values and evaluate prediction
-
-prophet_predictions = filter(forecast_prophet, ds >= test_start_date)
-
-prophet_mae = mean(abs(prophet_predictions$yhat - test_prophet$y))
-
-print(prophet_mae)
-
-# Now plotting real data and both forecasts
-library(tidyr)
-library(ggplot2)
-
-plot_data = data.frame(
-  date = test_prophet$ds,
-  Actual = test_prophet$y,
-  Prophet = as.numeric(prophet_predictions$yhat)[1:length(test_prophet$y)]
-)
-
-plot_data_long = plot_data %>%
-  pivot_longer(cols = c(Actual, Prophet), names_to = "Model", values_to = "Revenue")
-
-ggplot(plot_data_long, aes(x = date, y = Revenue, color = Model)) +
+# Now plot the QoQ revenue growth
+ggplot(R1_rev_quarterly, aes(x = quarter, y = qoq_growth)) +
   geom_line() +
-  labs(title = "Revenue Forecast Comparison",
-       x = "Date",
-       y = "Revenue",
-       color = "Model") +
-  theme_minimal()
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Quarter-on-Quarter Revenue Growth", x = "Quarter", y = "QoQ Growth (%)") +
+  # scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Note: The scales package provides the percent formatter for the y-axis.
+
+
 
 ```
+```{r}
+library(zoo)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(scales)
+
+# Ensure R1_rev_prep_monthly is prepped with 'order_purchase_timestamp' and 'revenue' calculated
+
+# Convert date to a quarter format and calculate quarterly data
+R1_rev_prep_quarterly <- R1_rev_prep_monthly %>%
+  mutate(quarter = as.yearqtr(order_purchase_timestamp)) %>%
+  group_by(quarter) %>%
+  summarise(
+    total_revenue = sum(revenue),
+    total_orders = n(),
+    aov = total_revenue / total_orders
+  ) %>%
+  arrange(quarter) %>%
+  filter(quarter >= as.yearqtr("2017 Q1"))  # Filter from Q1 2017
+
+# Calculate QoQ growth for revenue, AOV, and orders
+R1_rev_quarterly_growth <- R1_rev_prep_quarterly %>%
+  mutate(
+    revenue_growth = (total_revenue / lag(total_revenue) - 1) * 100,
+    aov_growth = (aov / lag(aov) - 1) * 100,
+    orders_growth = (total_orders / lag(total_orders) - 1) * 100
+  ) %>%
+  # Replace NA with 0 for the first row
+  mutate(
+    revenue_growth = ifelse(is.na(revenue_growth), 0, revenue_growth),
+    aov_contribution = total_revenue / lag(total_revenue) * aov_growth,
+    orders_contribution = total_revenue / lag(total_revenue) * orders_growth
+  )
+
+# Pivot the contribution data for plotting
+contributions <- R1_rev_quarterly_growth %>%
+  select(quarter, aov_contribution, orders_contribution) %>%
+  pivot_longer(cols = c(aov_contribution, orders_contribution), names_to = "category", values_to = "value")
+
+# Now plot the QoQ revenue growth with contributions
+ggplot() +
+  geom_line(data = R1_rev_quarterly_growth, aes(x = quarter, y = revenue_growth), color = "blue") +
+  geom_bar(data = contributions, aes(x = quarter, y = value, fill = category), stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("aov_contribution" = "red", "orders_contribution" = "green")) +
+  theme_minimal() +
+  labs(title = "Quarter-on-Quarter Revenue Growth with AOV and Orders Contribution",
+       x = "Quarter",
+       y = "Growth (%)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+```
+
+
+
+
+
 ```{r}
 library(prophet)
 library(dplyr)
@@ -251,8 +222,21 @@ actual_data <- ts_data_full %>%
 # Define last date of actual revenue data
 last_actual_data_date <- max(actual_data$date)
 
-# Fit Prophet model using actual revenue data
+# Make sure 'date' is in Date format
+actual_data <- ts_data_full %>%
+  filter(revenue > 0) %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d")) %>%
+  mutate(Model = "Actual")
+
+actual_data <- ts_data_full %>%
+  filter(revenue > 0) %>%
+  mutate(ds = as.Date(date)) %>%
+  filter(!is.na(ds)) %>%
+  mutate(Model = "Actual")
+
+# Now, you can rename 'date' to 'ds' and use it in Prophet
 m_prophet <- prophet(actual_data %>% select(ds = date, y = revenue))
+
 
 # Create a future dataframe for 60 days beyond the last actual revenue date
 future_dates <- make_future_dataframe(m_prophet, periods = 60, include_history = FALSE)
@@ -287,15 +271,12 @@ ggplot(plot_data, aes(x = date, y = Revenue, color = Model)) +
 ```{r}
 # Next I'll look at the number of unique products purchased and number of unique customers purchasing as Unique_Prods_Custs
 
-# First I just want delivered orders from cust_orditems that has all the data I need for this
-cust_orditems_delivered = cust_orditems %>%
-  filter(order_status == "delivered")
 
 
 # Then I want to group by month and count unique products and unique unique_customer_ids
-cust_orditems_delivered$order_purchase_timestamp = as.Date(cust_orditems_delivered$order_purchase_timestamp)
+consolidated_orders_customers$order_purchase_timestamp = as.Date(consolidated_orders_customers$order_purchase_timestamp)
 
-cust_orditems_delivered = cust_orditems_delivered %>%
+cust_orditems_delivered = consolidated_orders_customers%>%
   mutate(month_as_date = floor_date(order_purchase_timestamp, "month"))
 
 unique_prods_custs_monthly = cust_orditems_delivered %>%
@@ -414,6 +395,8 @@ ggplot(order_timing_totals, aes(x = year_month, y = percentage, group = weekday,
   theme_minimal()
 
 ```
+
+
 ```{r}
 
 
@@ -446,5 +429,291 @@ par(mar = c(5,4,4,2) + 0.1)
 
 ```{r}
 saveRDS(orders, "C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\orders_with_timing.rds" )
+```
+
+
+```{r}
+df = ord_cust_pay_geo_prod_cat
+
+# Assuming your dataframe is named df
+df <- df %>%
+  mutate(
+    order_purchase_timestamp = as.Date(order_purchase_timestamp),
+    year_month = format(order_purchase_timestamp, "%Y-%m")
+  )
+
+# Check a few rows to confirm the transformation
+print(head(df))
+
+
+monthly_revenue <- df %>%
+  group_by(year_month, product_category_name_english) %>%
+  summarise(monthly_revenue = sum(payment_value * units_ordered), .groups = "drop")
+
+# Check the monthly revenue
+print(head(monthly_revenue))
+
+
+prodcat_share_revenue <- monthly_revenue %>%
+  group_by(year_month) %>%
+  mutate(total_revenue = sum(monthly_revenue)) %>%
+  ungroup() %>%
+  mutate(share_of_revenue = (monthly_revenue / total_revenue) * 100)
+
+# Check the share of revenue
+print(head(prodcat_share_revenue))
+
+
+# Filter for relevant months
+relevant_months <- prodcat_share_revenue %>%
+  filter(year_month %in% c("2017-01", "2018-01", "2018-08"))
+
+# Check the filtered data
+print(head(relevant_months))
+
+# Separate the data by year_month
+share_2017_01 <- relevant_months %>% filter(year_month == "2017-01")
+share_2018_01 <- relevant_months %>% filter(year_month == "2018-01")
+share_2018_08 <- relevant_months %>% filter(year_month == "2018-08")
+
+# Calculating changes in share
+change_2017_to_2018 <- share_2018_01 %>%
+  left_join(share_2017_01, by = "product_category_name_english", suffix = c("_2018", "_2017")) %>%
+  mutate(change_2017 = share_of_revenue_2018 - share_of_revenue_2017)
+
+change_2018_Jan_Aug <- share_2018_08 %>%
+  left_join(share_2018_01, by = "product_category_name_english", suffix = c("_Aug", "_Jan")) %>%
+  mutate(change_2018_Jan_Aug = share_of_revenue_Aug - share_of_revenue_Jan)
+
+# Combine the changes for final output
+final_change <- change_2017_to_2018 %>%
+  select(product_category_name_english, change_2017) %>%
+  left_join(change_2018_Jan_Aug %>% select(product_category_name_english, change_2018_Jan_Aug),
+            by = "product_category_name_english")
+
+# Check the final output
+print(head(final_change))
+write.csv(final_change, "final_change.csv")
+
+
+```
+
+
+```{r}
+install.packages("RColorBrewer")
+```
+
+```{r}
+df = ord_cust_pay_geo_prod_cat
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(forcats)
+library(RColorBrewer)
+
+# Assuming your dataframe is named df
+# and df$order_purchase_timestamp, df$product_category_name_english, and df$payment_value are available
+
+# Ensure payment_value is numeric
+df$payment_value <- as.numeric(df$payment_value)
+
+# Convert order_purchase_timestamp to Date and extract year and month
+df <- df %>%
+  mutate(
+    order_purchase_timestamp = as.Date(order_purchase_timestamp),
+    year_month = format(order_purchase_timestamp, "%Y-%m")
+  )
+
+# Calculate monthly revenue by category
+monthly_revenue_by_category <- df %>%
+  group_by(year_month, product_category_name_english) %>%
+  summarise(monthly_revenue = sum(payment_value), .groups = "drop")
+
+# Find the top 20 categories by total revenue in 2017
+top_categories <- monthly_revenue_by_category %>%
+  filter(substr(year_month, 1, 4) == "2017") %>%
+  group_by(product_category_name_english) %>%
+  summarise(total_revenue = sum(monthly_revenue), .groups = "drop") %>%
+  top_n(20, total_revenue) %>%
+  arrange(desc(total_revenue)) %>%
+  pull(product_category_name_english)
+
+# Add an "Other" category for those not in the top 20
+monthly_revenue_by_category <- monthly_revenue_by_category %>%
+  mutate(
+    category_grouped = if_else(product_category_name_english %in% top_categories,
+                               as.character(product_category_name_english), "Other")
+  )
+
+# Recalculate monthly revenue by the new grouped category
+monthly_revenue_grouped <- monthly_revenue_by_category %>%
+  group_by(year_month, category_grouped) %>%
+  summarise(monthly_revenue = sum(monthly_revenue), .groups = "drop")
+
+# Ensure the entire time period is included
+monthly_revenue_grouped <- monthly_revenue_grouped %>%
+  filter(year_month >= "2017-01", year_month <= "2018-08")
+
+# Create a vector of distinct colors
+num_categories <- length(unique(monthly_revenue_grouped$category_grouped))
+colors <- sample(brewer.pal(min(num_categories, 12), "Set3"), num_categories, replace = TRUE)
+
+# Order categories by total revenue in 2017
+category_order <- monthly_revenue_grouped %>%
+  filter(year_month < "2018-01") %>%
+  group_by(category_grouped) %>%
+  summarise(total_revenue_2017 = sum(monthly_revenue), .groups = "drop") %>%
+  arrange(desc(total_revenue_2017)) %>%
+  pull(category_grouped)
+
+monthly_revenue_grouped$category_grouped <- factor(monthly_revenue_grouped$category_grouped, levels = category_order)
+
+# Create the stacked area chart
+ggplot(monthly_revenue_grouped, aes(x = as.Date(paste0(year_month, "-01")), y = monthly_revenue, fill = category_grouped)) +
+  geom_area(position = 'stack') +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+  scale_fill_manual(values = setNames(colors, category_order)) +
+  labs(title = "Monthly Revenue by Top 20 Product Categories in 2017 and Others",
+       x = "Month", y = "Revenue (Stacked by Total Revenue in 2017)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  guides(fill=guide_legend(title="Product Category"))
+
+
+```
+```{r}
+install.packages("viridis")
+```
+
+```{r}
+df = ord_cust_pay_geo_prod_cat
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(forcats)
+library(viridis)  # This package provides color palettes that are perceptually uniform
+
+# Assuming your dataframe is named df
+# and df$order_purchase_timestamp, df$product_category_name_english, and df$payment_value are available
+
+# Ensure payment_value is numeric
+df$payment_value <- as.numeric(df$payment_value)
+
+# Convert order_purchase_timestamp to Date and extract year and month
+df <- df %>%
+  mutate(
+    order_purchase_timestamp = as.Date(order_purchase_timestamp),
+    year_month = format(order_purchase_timestamp, "%Y-%m")
+  )
+
+# Calculate monthly revenue by category
+monthly_revenue_by_category <- df %>%
+  group_by(year_month, product_category_name_english) %>%
+  summarise(monthly_revenue = sum(payment_value), .groups = "drop")
+
+# Find the top 20 categories by total revenue in 2017
+top_categories <- monthly_revenue_by_category %>%
+  filter(substr(year_month, 1, 4) == "2017") %>%
+  group_by(product_category_name_english) %>%
+  summarise(total_revenue = sum(monthly_revenue), .groups = "drop") %>%
+  top_n(20, total_revenue) %>%
+  arrange(desc(total_revenue)) %>%
+  pull(product_category_name_english)
+
+# Add an "Other" category for those not in the top 20
+monthly_revenue_by_category <- monthly_revenue_by_category %>%
+  mutate(
+    category_grouped = if_else(product_category_name_english %in% top_categories,
+                               as.character(product_category_name_english), "Other")
+  )
+
+# Recalculate monthly revenue by the new grouped category
+monthly_revenue_grouped <- monthly_revenue_by_category %>%
+  group_by(year_month, category_grouped) %>%
+  summarise(monthly_revenue = sum(monthly_revenue), .groups = "drop")
+
+# Ensure the entire time period is included
+monthly_revenue_grouped <- monthly_revenue_grouped %>%
+  filter(year_month >= "2017-01", year_month <= "2018-08")
+
+# Create a custom color palette using the viridis package
+num_categories <- length(unique(monthly_revenue_grouped$category_grouped))
+colors <- viridis(num_categories, option = "D")
+
+# Order categories by total revenue in 2017
+category_order <- monthly_revenue_grouped %>%
+  filter(year_month < "2018-01") %>%
+  group_by(category_grouped) %>%
+  summarise(total_revenue_2017 = sum(monthly_revenue), .groups = "drop") %>%
+  arrange(desc(total_revenue_2017)) %>%
+  pull(category_grouped)
+
+monthly_revenue_grouped$category_grouped <- factor(monthly_revenue_grouped$category_grouped, levels = category_order)
+
+# Create the stacked area chart showing share of total revenue
+ggplot(monthly_revenue_grouped, aes(x = as.Date(paste0(year_month, "-01")), y = monthly_revenue, fill = category_grouped)) +
+  geom_area(position = 'fill') +  # Use 'fill' to show share of total revenue
+  scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+  scale_fill_manual(values = setNames(colors, category_order)) +
+  labs(title = "Monthly Revenue Share by Top 20 Product Categories in 2017 and Others",
+       x = "Month", y = "Revenue Share (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  guides(fill=guide_legend(title="Product Category"))
+
+```
+
+```{r}
+# Check HHI to see market concentration over time for products, customers, sellers and customer location (city)
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Convert the order_purchase_timestamp to Date format and extract year-month
+df <- ord_cust_pay_geo_prod %>%
+  mutate(
+    order_purchase_timestamp = as.Date(order_purchase_timestamp),
+    year_month = format(order_purchase_timestamp, "%Y-%m")
+  )
+
+# Define a function to calculate monthly HHI
+calculate_monthly_HHI <- function(data, group_col) {
+  data %>%
+    group_by(year_month, !!group_col) %>%
+    summarise(total_sales = sum(payment_value), .groups = "drop") %>%
+    group_by(year_month) %>%
+    mutate(market_share = total_sales / sum(total_sales)) %>%
+    summarise(HHI = sum(market_share^2), .groups = "drop")
+}
+
+# Calculate monthly HHI for products, customers, sellers, and cities
+HHI_products_monthly <- calculate_monthly_HHI(df, sym("product_id")) %>%
+  mutate(HHI = HHI * 100)  # Rescale HHI to percentage
+
+HHI_customers_monthly <- calculate_monthly_HHI(df, sym("customer_unique_id")) %>%
+  mutate(HHI = HHI * 100)  # Rescale HHI to percentage
+
+HHI_sellers_monthly <- calculate_monthly_HHI(df, sym("seller_id")) %>%
+  mutate(HHI = HHI * 100)  # Rescale HHI to percentage
+
+HHI_cities_monthly <- calculate_monthly_HHI(df, sym("customer_city")) %>%
+  mutate(HHI = HHI * 100)  # Rescale HHI to percentage
+
+# Plotting the HHIs over time
+ggplot() +
+  geom_line(data = HHI_products_monthly, aes(x = as.Date(paste0(year_month, "-01")), y = HHI, colour = "Products")) +
+  geom_line(data = HHI_customers_monthly, aes(x = as.Date(paste0(year_month, "-01")), y = HHI, colour = "Customers")) +
+  geom_line(data = HHI_sellers_monthly, aes(x = as.Date(paste0(year_month, "-01")), y = HHI, colour = "Sellers")) +
+  geom_line(data = HHI_cities_monthly, aes(x = as.Date(paste0(year_month, "-01")), y = HHI, colour = "Cities")) +
+  scale_x_date(limits = as.Date(c("2017-01-01", "2018-08-31"))) +
+  coord_cartesian(ylim = c(0, 5)) +
+  labs(title = "Monthly HHI for Products, Customers, Sellers, and Cities",
+       x = "Time", y = "HHI (%)",  # Update the y-axis label
+       colour = "Category") +
+  theme_minimal() +
+  scale_colour_manual(values = c("Products" = "blue", "Customers" = "red", "Sellers" = "green", "Cities" = "purple"))
+
 ```
 
