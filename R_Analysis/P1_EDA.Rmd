@@ -54,7 +54,29 @@ ggplot(R1_rev_monthly, aes(x = date, y = monthly_revenue)) +
   scale_y_continuous(labels = format_brl) +
   theme(axis.text = element_text(angle = 45, hjust = 1))
 
+# Scale factor for the secondary axis
+monthly_data_plot = monthly_data %>%
+  filter(date >= as.Date("2017-01-01") & date <= as.Date("2018-09-01"))
+
+scale_factor <- max(monthly_data_plot$total_orders) / max(monthly_data_plot$aov)
+
+# Create the plot
+p <- ggplot(monthly_data, aes(x = date)) +
+  geom_line(aes(y = total_orders, colour = "Total Orders")) +
+  geom_line(aes(y = aov * scale_factor, colour = "AOV")) +
+  scale_y_continuous(name = "Total Orders",
+                     sec.axis = sec_axis(~ . / scale_factor, name = "AOV")) +
+  scale_colour_manual("", values = c("Total Orders" = "blue", "AOV" = "red")) +
+  theme_minimal() +
+  labs(x = "Date", colour = "Metric") +
+  theme(axis.text.y.right = element_text(angle = 90),
+        axis.title.y.right = element_text(angle = 90))
+
+# Print the plot
+print(p)
 ```
+
+
 
 ```{r}
 # Calculate and Plot R2: MoM Contribution to Revenue Growth with AOV and Total Orders 
@@ -205,6 +227,15 @@ ggplot() +
 
 ```
 
+```{r}
+# P x Q: AOV and total orders by month
+
+
+
+
+
+
+```
 
 
 
@@ -714,6 +745,139 @@ ggplot() +
        colour = "Category") +
   theme_minimal() +
   scale_colour_manual(values = c("Products" = "blue", "Customers" = "red", "Sellers" = "green", "Cities" = "purple"))
+
+```
+
+```{r}
+# Look at avg revenue per seller since sellers are the customers
+
+# Filter to delivered orders only
+geo_df_delivered = geo_df %>%
+  filter(geo_df$order_status == "delivered")
+
+# Group by seller id and sum p * Q and freight * Q
+rev_by_seller = geo_df_delivered %>%
+  mutate(
+    order_purchase_timestamp = as.Date(order_purchase_timestamp),
+    month = floor_date(order_purchase_timestamp, "month")) %>%
+  group_by(seller_id, month) %>%
+  summarise(
+    product_revenue = sum(price * units_ordered),
+    shipping_revenue = sum(freight_value * units_ordered),
+    .groups = "drop"
+  ) %>%
+  mutate(total_revenue = product_revenue + shipping_revenue)
+
+avg_rev_by_seller = rev_by_seller %>%
+  group_by(month) %>%
+  summarise(
+    avg_product_revenue = mean(product_revenue),
+    avg_shipping_revenue = mean(shipping_revenue),
+    avg_total_revenue = mean(total_revenue),
+    .groups = "drop"
+  )
+
+# Plot stacked area chart
+library(tidyr)
+
+avg_rev_by_seller_long = avg_rev_by_seller %>%
+  pivot_longer(
+    cols = c(avg_product_revenue, avg_shipping_revenue),
+    names_to = "revenue_type", 
+    values_to = "amount"
+  )
+
+ggplot(avg_rev_by_seller_long, aes(x = month, y = amount, fill = revenue_type)) +
+  geom_area(position = "stack", stat = "identity") +
+  scale_fill_brewer(palette = "Pastel1")
+  labs(
+    title = "Revenue Breakdown By Seller Per Month",
+    x = "Month",
+    y = "Revenue",
+    fill = "Revenue Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank())  
+
+
+```
+
+```{r}
+# Look at seller growth broken down by new vs old sellers
+
+first_sales_dates = geo_df_delivered %>%
+  group_by(seller_id) %>%
+  summarise(first_sale_date = min(as.Date(order_purchase_timestamp))) %>%
+  ungroup()
+
+geo_df_delivered = geo_df_delivered %>%
+  mutate(order_purchase_timestamp = as.Date(order_purchase_timestamp)) %>%
+  left_join(first_sales_dates, by = "seller_id")
+
+# Categorize new vs old sellers
+geo_df_delivered = geo_df_delivered %>%
+  mutate(
+    month = floor_date(order_purchase_timestamp,"month"),
+    seller_new_old = if_else(month == floor_date(first_sale_date, "month"), "New", "Old")
+  )
+
+# Count new vs old per month
+sellers_per_month = geo_df_delivered %>%
+  group_by(month, seller_new_old) %>%
+  summarize(total_sellers = n_distinct(seller_id), .groups= "drop")
+
+# Plot
+ggplot(sellers_per_month, aes(x = month, y = total_sellers, fill = seller_new_old)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(
+    title = "Total Sellers per Month: New vs Old",
+    x = "Month",
+    y = "Total Sellers",
+    fill = "Seller Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Seller avg revenue doesn't seem to make sense vs total revenue and total # of sellers so I want to figure that out here
+
+
+```
+
+
+
+```{r}
+# Check out seller competitiveness if possible
+
+# First check if there are multiple sellers of the same product
+sellers_per_product = geo_df_delivered %>%
+  group_by(product_id) %>%
+  summarise(num_sellers = n_distinct(seller_id)) %>%
+  ungroup()
+
+# There are multiple sellers per product so move on to calc avg num of sellers per product per month
+
+monthly_sellers_per_product = geo_df_delivered %>%
+  mutate(month = floor_date(as.Date(order_purchase_timestamp), "month")) %>%
+  group_by(month, product_id) %>%
+  summarise(num_sellers = n_distinct(seller_id), .groups = "drop")
+
+avg_sellers_per_product_monthly = monthly_sellers_per_product %>%
+  group_by(month) %>%
+  summarize(avg_sellers = mean(num_sellers), .groups = "drop")
+
+# Plot
+ggplot(avg_sellers_per_product_monthly, aes(x = month, y = avg_sellers)) +
+  geom_line() +
+  labs(title = "Avg Sellers Per Product Per Month",
+       x = "Month",
+       y = "Avg Number of Sellers") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ```
 
