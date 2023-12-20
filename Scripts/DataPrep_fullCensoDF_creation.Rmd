@@ -64,7 +64,7 @@ tract_income = read_tracts(year = 2010, dataset = "DomicilioRenda", showProgress
 
 ```{r}
 # Load my dataframe of Olist data
-full_df <- readRDS("C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\full_df.rds")
+full_df <- readRDS("C:\\Users\\willf\\OneDrive\\Documents\\NYDSA\\R\\Olist\\Data\\RDS_DFs\\full_df.rds")
 
 ```
 
@@ -105,6 +105,13 @@ customer_tracts = st_join(customer_locations, tracts)
 seller_tracts = st_join(seller_locations, tracts)
 
 ```
+
+```{r}
+saveRDS(customer_tracts, "customer_tracts.rds")
+saveRDS(seller_tracts, "seller_tracts.rds")
+```
+
+
 ```{r}
 str(full_df$seller_id)
 str(seller_tracts$seller_id)

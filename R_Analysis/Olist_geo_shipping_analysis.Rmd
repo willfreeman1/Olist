@@ -5,54 +5,333 @@ output: html_notebook
 
 ```{r}
 # Data Prep
-library(stringr)
-
-# First we need to add seller's data to our DF
-
-geo_df = ord_cust_pay_geo_prod_cat %>%
-  left_join(sellers, by = "seller_id")
-
-# Next we need to make seller zip code prefixes start with 0 
-
-geo_df = geo_df %>%
-  mutate(seller_zip_code_prefix = str_pad(seller_zip_code_prefix, width = 5, side = "left", pad = "0"))
-
-
-# Next change current geolocation columns to customer_geolocation
-
-geo_df = geo_df %>%
-  rename(cust_geo_lat = geolocation_lat,
-         cust_geo_lng = geolocation_lng,
-         cust_geo_city = geolocation_city,
-         cust_geo_state = geolocation_state)
-  
-# Next join geolocation again but based on seller info
-
-geo_df = geo_df %>%
-  left_join(geolocation, by = c("seller_zip_code_prefix" = "geolocation_zip_code_prefix"))
-
-# Next rename to specify seller geolocation
-geo_df = geo_df %>%
-  rename(sell_geo_lat = geolocation_lat,
-         sell_geo_lng = geolocation_lng,
-         sell_geo_city = geolocation_city,
-         sell_geo_state = geolocation_state)
+library(dplyr)
+geo_df_delivered = readRDS("geo_df_delivered.rds")
 
 # Check for instances when customer and seller cities and states don't match geolocation data
 
-mismatched_geos_citystate = geo_df %>%
+# First standardize text for all the geo fields I'm matching
+
+standardize_text <- function(text) {
+  if (is.null(text) || length(text) == 0) {
+    return(NA_character_)
+  }
+  text %>%
+    stringi::stri_trans_general("Latin-ASCII") %>%
+    tolower() %>%
+    trimws()
+}
+
+geo_df_delivered <- geo_df_delivered %>%
+  mutate(
+    seller_city = standardize_text(seller_city),
+    sell_geo_city = standardize_text(sell_geo_city),
+    seller_state = standardize_text(seller_state),
+    sell_geo_state = standardize_text(sell_geo_state),
+    customer_city = standardize_text(customer_city),
+    cust_geo_city = standardize_text(cust_geo_city),
+    customer_state = standardize_text(customer_state),
+    cust_geo_state = standardize_text(cust_geo_state)
+  )
+  
+
+# Check mismatches
+mismatched_geos_citystate = geo_df_delivered %>%
   filter(
     (seller_city != sell_geo_city | seller_state != sell_geo_state) | (customer_city != cust_geo_city | customer_state != cust_geo_state)
-  )
+  ) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state )
 
-mismatched_geos_state = geo_df %>%
-  filter(seller_state != sell_geo_state | customer_state != cust_geo_state)
+# Check mismatches separately for seller vs customer data
+mismatched_seller_geos = geo_df_delivered %>%
+  filter(seller_city != sell_geo_city | seller_state != sell_geo_state) %>%
+  select(order_id, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state)
+
+mismatched_customer_geos = geo_df_delivered %>%
+  filter(customer_city != cust_geo_city | customer_state != cust_geo_state) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix)
+
+
 
 dim(mismatched_geos_citystate)
-dim(mismatched_geos_state)
-dim(geo_df)
+dim(mismatched_seller_geos)
+dim(mismatched_customer_geos)
+dim(geo_df_delivered)
 
 ```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(purrr)
+
+# Function to standardize city names
+standardize_city_names <- function(city_name) {
+  if (is.na(city_name)) {
+    return(city_name)
+  }
+
+  # Standardizing hyphenation and spacing
+  standardized_name <- str_replace_all(city_name, "[ /]", "-")
+  standardized_name <- tolower(standardized_name)
+  
+  # Correcting common misspellings and variations
+  corrections <- c(
+    "riberao-preto" = "ribeirao-preto",
+    "piumhii" = "piumhi",
+    "brasilia-df" = "brasilia",
+    "brasilia-sp" = "brasilia",
+    "mogi-guacu" = "mogi-guacu",
+    "balenario-camboriu" = "balneario-camboriu",
+    "balneario-picarras" = "balneario-picarras",
+    "barbacena-minas-gerais" = "barbacena",
+    "cachoeiras-de-macacu" = "cachoeiras-de-macacu",
+    "cariacica-es" = "cariacica",
+    "carapicuiba-sao-paulo" = "carapicuiba",
+    "lago-sul" = "brasilia",
+    "bonfim-paulista" = "ribeirao-preto",
+    "ribeirao-preto-sao-paulo" = "ribeirao-preto",
+    "ribeirao-pretp" = "ribeirao-preto",
+    "riberao-preto" = "ribeirao-preto",
+    "robeirao-preto" = "ribeirao-preto",
+    "s-jose-do-rio-preto" = "sao-jose-do-rio-preto",
+    "santo-andre-sao-paulo" = "santo-andre",
+    "sao-jose-do-rio-pret" = "sao-jose-do-rio-preto",
+    "sao-paulo-sp" = "sao-paulo",
+    "sao-paulop" = "sao-paulo",
+    "sao-paluo" = "sao-paulo",
+    "sao-caetano-do-sul" = "sao-caetano-do-sul",
+    "cascavael" = "cascavel",
+    "ferraz-de-vasconcelos" = "ferraz-de-vasconcelos",
+    "floranopolis" = "florianopolis",
+    "garulhos" = "guarulhos",
+    "itapaje" = "itapage",
+    "portoferreira" = "porto-ferreira",
+    "rio-de-janeiro-rio-de-janeiro" = "rio-de-janeiro",
+    "rio-de-janeiro-rio-de-janeiro-brasil" = "rio-de-janeiro",
+    "sao-bernardo-do-capo" = "sao-bernardo-do-campo",
+    "sao-jorge-doeste" = "sao-jorge-d'oeste",
+    "sao-jorge-do-oeste" = "sao-jorge-d'oeste",
+    "sao-jose-dos-pinhas" = "sao-jose-dos-pinhais",
+    "sao-luis-do-paraitinga" = "sao-luiz-do-paraitinga",
+    "sao-miguel-do-oeste" = "sao-miguel-d'oeste",
+    "tabao-da-serra" = "taboao-da-serra",
+    "scao-jose-do-rio-pardo" = "sao-jose-do-rio-pardo"
+  )
+
+# Apply corrections if the name is in the list
+  if (standardized_name %in% names(corrections)) {
+    return(corrections[[standardized_name]])
+  } else {
+    return(standardized_name)
+  }
+}
+
+# Apply the function to the dataframe using map instead of sapply
+geo_df_delivered <- geo_df_delivered %>%
+  mutate(
+    seller_city = map_chr(seller_city, standardize_city_names),
+    sell_geo_city = map_chr(sell_geo_city, standardize_city_names),
+    customer_city = map_chr(customer_city, standardize_city_names),
+    cust_geo_city = map_chr(cust_geo_city, standardize_city_names)
+  )
+
+# Displaying the first few rows after standardization
+head(geo_df_delivered)
+```
+
+```{r}
+# Check mismatches
+mismatched_geos_citystate = geo_df_delivered %>%
+  filter(
+    (seller_city != sell_geo_city | seller_state != sell_geo_state) | (customer_city != cust_geo_city | customer_state != cust_geo_state)
+  ) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state )
+
+# Check mismatches separately for seller vs customer data
+mismatched_seller_geos = geo_df_delivered %>%
+  filter(seller_city != sell_geo_city | seller_state != sell_geo_state) %>%
+  select(order_id, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state)
+
+mismatched_customer_geos = geo_df_delivered %>%
+  filter(customer_city != cust_geo_city | customer_state != cust_geo_state) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix)
+
+
+
+dim(mismatched_geos_citystate)
+dim(mismatched_seller_geos)
+dim(mismatched_customer_geos)
+dim(geo_df_delivered)
+```
+
+```{r}
+library(dplyr)
+
+# Filtering out rows with mismatched city or state names
+geo_df_delivered_cleaned <- geo_df_delivered %>%
+  filter(
+    seller_city == sell_geo_city & seller_state == sell_geo_state &
+    customer_city == cust_geo_city & customer_state == cust_geo_state
+  )
+
+# Check the dimensions of the cleaned dataframe
+dim(geo_df_delivered_cleaned)
+
+```
+```{r}
+# Start preparing data for leaflet map plotting. 
+install.packages("leaflet")
+```
+
+```{r}
+num_states = n_distinct(geo_df_delivered$seller_state)
+num_cities = n_distinct(geo_df_delivered$seller_city)
+num_zips = n_distinct(geo_df_delivered$seller_zip_code_prefix)
+
+print(c(num_states, num_cities, num_zips))
+
+```
+
+```{r}
+# Download geobr and censobr data
+
+library(geobr)
+library(dplyr)
+library(ggplot2)
+
+# download data
+tracts_basico <- read_tracts(year = 2010, dataset = "Basico", showProgress = FALSE)
+tracts_income <- read_tracts(year = 2010, dataset = "DomicilioRenda", showProgress = FALSE)
+
+# select columns
+tracts_basico <- tracts_basico |> select('code_tract','V002')
+tracts_income <- tracts_income |> select('code_tract','V003')
+
+# merge
+tracts_df <- left_join(tracts_basico, tracts_income) |> collect()
+
+# calculate income per capita
+tracts_df <- tracts_df |> mutate(income_pc = V003 / V002)
+
+tracts <- read_census_tract(code_tract = "all", year=2010)
+
+```
+
+
+
+```{r}
+# Add seller and customer income per capita to geo_df_delivered_cleaned
+
+# Convert full_df locations into spatial objects
+
+library(dplyr)
+library(sf)
+
+# filter out na rows for customer and seller lon/lat
+
+customer_locations = geo_df_delivered_cleaned %>%
+  filter(!is.na(cust_geo_lng) & !is.na(cust_geo_lng)) %>%
+  st_as_sf(coords = c("cust_geo_lng", "cust_geo_lat"), crs = 4326)
+
+seller_locations = geo_df_delivered_cleaned %>%
+  filter(!is.na(sell_geo_lng) & !is.na(sell_geo_lat)) %>%
+  st_as_sf(coords = c("sell_geo_lng",
+                               "sell_geo_lat"), crs = 4326)
+
+# Transform geolocations to matching formats
+customer_locations = st_transform(customer_locations, crs = 4674)
+seller_locations = st_transform(seller_locations, crs = 4674)
+
+# Ensure tracts data is valid
+# tracts <- st_make_valid(tracts)
+
+# Spatial join tracts for customers and sellers
+customer_tracts <- st_join(customer_locations, tracts)
+seller_tracts <- st_join(seller_locations, tracts)
+
+# Join with tracts_df to get income, pop and income p/c
+customer_tracts_incomepc <- left_join(customer_tracts, tracts_df, by = "code_tract")
+seller_tracts_incomepc <- left_join(seller_tracts, tracts_df, by = "code_tract")
+
+# Convert to DFs and group by unique ids
+customer_incomepc <- as.data.frame(customer_tracts_incomepc) %>%
+  group_by(customer_unique_id) %>%
+  summarise(cust_incomepc = mean(income_pc))
+
+seller_incomepc <- as.data.frame(seller_tracts_incomepc) %>%
+  group_by(seller_id) %>%
+  summarise(sell_incomepc = mean(income_pc))
+
+# Add urban/rural class for customers and sellers
+# Rename columns to avoid overlap
+customer_urban_rural <- customer_tracts_incomepc %>%
+  select(customer_unique_id, zone) %>%
+  distinct() %>%
+  rename(cust_zone = zone)
+
+seller_urban_rural <- seller_tracts_incomepc %>%
+  select(seller_id, zone) %>%
+  distinct() %>%
+  rename(sell_zone = zone)
+
+# Merge summarized metrics back into main DF
+# Merge urban/rural back into main DF with explicit column names
+geo_df_delivered_cleaned_census <- geo_df_delivered_cleaned %>%
+  left_join(customer_incomepc, by = "customer_unique_id") %>%
+  left_join(seller_incomepc, by = "seller_id") %>%
+  left_join(customer_urban_rural, by = "customer_unique_id") %>%
+  left_join(seller_urban_rural, by = "seller_id")
+
+
+
+```
+
+```{r}
+# Check accuracy with plot
+
+library(ggplot2)
+library(sf)
+
+# Plot a subset of tracts and points
+ggplot() +
+  geom_sf(data = tracts[sample(nrow(tracts), 1000), ], fill = 'lightblue', color = 'black') +
+  geom_sf(data = customer_locations[sample(nrow(customer_locations), 500), ], color = 'red', size = 0.5) +
+  geom_sf(data = seller_locations[sample(nrow(seller_locations), 500), ], color = 'green', size = 0.5) +
+  theme_minimal() +
+  labs(title = "Spatial Join Check: Tracts, Customer and Seller Locations")
+
+
+```
+
+```{r}
+# Save the geo_df_delivered_clean_census to use later as needed
+saveRDS(geo_df_delivered_cleaned_census, "geo_df_delivered_clean_census.rds")
+str(geo_df_delivered_cleaned_census)
+```
+
+```{r}
+# Calculate seller lifetime value, total sales by location, avg sales per seller by location, new vs old sellers by location, # of sellers by location - all monthly
+library(lubridate )
+
+full_geo_df_monthly = geo_df_delivered_cleaned_census %>%
+  mutate(
+    order_purchase_timestamp = as.Date(order_purchase_timestamp),
+    year_month = floor_date(order_purchase_timestamp, "month")
+  )
+
+```
+
+
+
+```{r}
+# Moving on to creating geo visualizations with leaflet
+library(leaflet)
+
+
+```
+
+
 
 ```{r}
 # Does shipping cost (absolute or share of order value) impact sales? First just check if they correlate

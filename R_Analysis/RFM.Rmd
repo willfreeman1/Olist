@@ -21,6 +21,7 @@ str(RFM_DF$order_purchase_timestamp)
 ```{r}
 # Calc Recency
 
+library(dplyr)
 # Find the most recent purchase date in the dataset
 most_recent_purchase <- max(RFM_DF$order_purchase_timestamp, na.rm = TRUE)
 
@@ -152,16 +153,15 @@ str(payment_types_cust)
 # Add categorical features of customer zip, city and state
 library(stringr)
 
-ord_cust_pay = ord_cust_pay %>%
+ord_cust_pay %>%
   arrange(customer_unique_id, desc(order_purchase_timestamp)) %>%
   group_by(customer_unique_id) %>%
-  slice(1) %>%
   ungroup() %>%
-  
-  mutate(customer_zip_code_prefix = str_pad(customer_zip_code_prefix, width = 5, side = "left", pad = "0"),
-         customer_zip_code_prefix = as.factor(customer_zip_code_prefix),
-         customer_city = as.factor(customer_city),
-         customer_state = as.factor(customer_state)
+  mutate(
+    customer_zip_code_prefix = str_pad(customer_zip_code_prefix, width = 5, side = "left", pad = "0"),
+    customer_zip_code_prefix = as.factor(customer_zip_code_prefix),
+    customer_city = as.factor(customer_city),
+    customer_state = as.factor(customer_state)
   )
 
 # ord_cust_pay = ord_cust_pay %>%
@@ -237,23 +237,29 @@ head(ordtime_cust)
 
 most_common_weekday = ordtime_cust %>%
   group_by(customer_unique_id, weekday) %>%
-  summarise(count = n(), .groups = "drop") %>%
-  arrange(customer_unique_id, desc(count)) %>%
+  summarise(count = n(), 
+            latest_order = max(order_purchase_timestamp), 
+            .groups = "drop") %>%
+  arrange(customer_unique_id, desc(count), desc(latest_order)) %>%
   group_by(customer_unique_id) %>%
   slice(1) %>%
-  ungroup() %>%
   select(customer_unique_id, most_common_weekday = weekday)
+
 
 most_common_month = ordtime_cust %>%
   group_by(customer_unique_id, month) %>%
-  summarise(count = n(), .groups = "drop") %>%
-  arrange(customer_unique_id, desc(count)) %>%
+  summarise(count = n(), 
+            latest_order = max(order_purchase_timestamp), 
+            .groups = "drop") %>%
+  arrange(customer_unique_id, desc(count), desc(latest_order)) %>%
   group_by(customer_unique_id) %>%
   slice(1) %>%
-  ungroup() %>%
   select(customer_unique_id, most_common_month = month)
 
-head(most_common_month)
+dim(most_common_weekday)
+dim(ordtime_cust)
+
+write.csv(most_common_weekday, "most_common_weekday.csv")
 ```
 ```{r}
 # Calc customer zip code per capita income
@@ -359,6 +365,8 @@ cust_zone_feature = df_subset %>%
 
 ```
 
+
+
 ```{r}
 # Combine all features into one table
 
@@ -388,6 +396,15 @@ full_cust_features$most_common_month = as.factor(full_cust_features$most_common_
 full_cust_features$most_common_weekday = as.factor(full_cust_features$most_common_weekday)
 full_cust_features$urban_rural = as.factor(full_cust_features$urban_rural)
 
+
+```
+
+```{r}
+saveRDS(full_cust_features, "cust_features_nonencoded_noRFM.RDS")
+```
+
+
+```{r}
 # One-hot encode features with multiple items
 
 payment_types_expanded = payment_types_cust %>%
@@ -400,7 +417,7 @@ pay_types_onehot = payment_types_expanded %>%
               values_fill = list(value = 0),
               names_prefix = "paytype_")
 
-full_cust_features = full_cust_features %>%
+features_paytypes_encoded = full_cust_features %>%
   left_join(pay_types_onehot, by = "customer_unique_id")
 
 cats_per_cust_expanded = cats_per_cust %>%
@@ -413,18 +430,20 @@ cust_cats_onehot = cats_per_cust_expanded %>%
               values_fill = list(value = 0),
               names_prefix = "prodcat_")
 
-full_cust_features = full_cust_features %>%
+features_paytypes_cats_encoded = full_cust_features %>%
   left_join(cust_cats_onehot, by = "customer_unique_id")
 
-full_cust_features = full_cust_features %>%
+features_paytypes_cats_encoded = full_cust_features %>%
   select(-customer_id)
 
-full_cust_features = full_cust_features %>%
+features_paytypes_cats_encoded_excustid = features_paytypes_cats_encoded %>%
   select(-paytype_NA)
 
-str(full_cust_features)
+str(features_paytypes_cats_encoded_excustid)
   
 ```
+
+
 ```{r}
 # Check for duplicates
 full_cust_features_dupes = full_cust_features %>%
