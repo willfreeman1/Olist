@@ -845,9 +845,78 @@ ggplot(sellers_per_month, aes(x = month, y = total_sellers, fill = seller_new_ol
 ```{r}
 # Seller avg revenue doesn't seem to make sense vs total revenue and total # of sellers so I want to figure that out here
 
+# We have sellers new old in geo_df_delivered
+
+# Calc monthly total revenue
+monthly_revenue_pxq = geo_df_delivered %>%
+  group_by(month) %>%
+  summarize(
+    total_payment_value = sum(payment_value),
+    total_revenue = sum(price + freight_value * units_ordered)
+  ) %>%
+  ungroup()
+
+# Calc number of sellers per month
+monthly_sellers = geo_df_delivered %>%
+  group_by(month) %>%
+  summarise(total_sellers = n_distinct(seller_id)) %>%
+  ungroup()
+
+# Merge datasets
+revenue_sellers_df = left_join(monthly_revenue_pxq, monthly_sellers, by = "month") %>%
+  mutate(
+    avg_revenue_payment = total_payment_value / total_sellers, 
+    avg_revenue_calc = total_revenue / total_sellers
+  )
+
+# Filter to Jan 2017 to Aug 2018
+filtered_seller_df = revenue_sellers_df %>%
+  filter(month >= as.Date("2017-01-01") & month <= as.Date("2018-08-31"))
+
+# Create an index with all variables starting in Jan 2017 at 100
+base_month = as.Date("2017-01-01")
+base_values = filtered_seller_df %>%
+  filter(month == base_month) %>%
+  summarise(
+    base_total_revenue = first(total_revenue),
+    base_total_sellers = first(total_sellers),
+    base_avg_revenue_calc = first(avg_revenue_calc)
+  )
+
+base_total_revenue = base_values$base_total_revenue
+base_total_sellers = base_values$base_total_sellers
+base_avg_revenue_calc = base_values$base_avg_revenue_calc
+
+filtered_seller_indexes = filtered_seller_df %>%
+  mutate(
+    revenue_index = (total_revenue / base_total_revenue) * 100, 
+    sellers_index = (total_sellers / base_total_sellers) * 100,
+    avg_revenue_index = (avg_revenue_calc / base_avg_revenue_calc) * 100
+  )
+
+
+# Plot
+ggplot(filtered_seller_indexes, aes(x = month)) +
+  geom_line(aes(y = revenue_index, color = "Total Revenue"), size = 1) +
+  geom_line(aes(y = sellers_index, color = "Total Sellers"), size = 1) +
+  geom_line(aes(y = avg_revenue_index, color = "Avg Revenue Per Seller"), size = 1) +
+  scale_color_manual(values = c("Total Revenue" = "blue", "Total Sellers" = "red", "Avg Revenue Per Seller" = "green")) +
+  labs(title = "Total Revenue, Total Sellers and Avg Revenue Per Seller",
+       x = "Month", y = "Index (Base 100)", color = "Legend Title") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Output the data for manual inspection
+print(revenue_sellers_df)
 
 ```
 
+```{r}
+install.packages("googleCharts")
+saveRDS(filtered_seller_indexes, "filtered_seller_indexes.rds")
+
+str(filtered_seller_indexes$month)
+```
 
 
 ```{r}
@@ -879,5 +948,9 @@ ggplot(avg_sellers_per_product_monthly, aes(x = month, y = avg_sellers)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+```
+
+```{r}
+saveRDS(geo_df_delivered, "geo_df_delivered.rds")
 ```
 
