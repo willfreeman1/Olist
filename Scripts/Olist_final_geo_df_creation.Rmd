@@ -1,0 +1,884 @@
+---
+title: "Olist_geo_shipping_analysis"
+output: html_notebook
+---
+
+```{r}
+# Data Prep
+library(dplyr)
+geo_df_delivered = readRDS("geo_df_delivered.rds")
+
+# Check for instances when customer and seller cities and states don't match geolocation data
+
+# First standardize text for all the geo fields I'm matching
+
+standardize_text <- function(text) {
+  if (is.null(text) || length(text) == 0) {
+    return(NA_character_)
+  }
+  text %>%
+    stringi::stri_trans_general("Latin-ASCII") %>%
+    tolower() %>%
+    trimws()
+}
+
+geo_df_delivered <- geo_df_delivered %>%
+  mutate(
+    seller_city = standardize_text(seller_city),
+    sell_geo_city = standardize_text(sell_geo_city),
+    seller_state = standardize_text(seller_state),
+    sell_geo_state = standardize_text(sell_geo_state),
+    customer_city = standardize_text(customer_city),
+    cust_geo_city = standardize_text(cust_geo_city),
+    customer_state = standardize_text(customer_state),
+    cust_geo_state = standardize_text(cust_geo_state)
+  )
+  
+
+# Check mismatches
+mismatched_geos_citystate = geo_df_delivered %>%
+  filter(
+    (seller_city != sell_geo_city | seller_state != sell_geo_state) | (customer_city != cust_geo_city | customer_state != cust_geo_state)
+  ) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state )
+
+# Check mismatches separately for seller vs customer data
+mismatched_seller_geos = geo_df_delivered %>%
+  filter(seller_city != sell_geo_city | seller_state != sell_geo_state) %>%
+  select(order_id, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state)
+
+mismatched_customer_geos = geo_df_delivered %>%
+  filter(customer_city != cust_geo_city | customer_state != cust_geo_state) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix)
+
+
+
+dim(mismatched_geos_citystate)
+dim(mismatched_seller_geos)
+dim(mismatched_customer_geos)
+dim(geo_df_delivered)
+
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(purrr)
+
+# Function to standardize city names
+standardize_city_names <- function(city_name) {
+  if (is.na(city_name)) {
+    return(city_name)
+  }
+
+  # Standardizing hyphenation and spacing
+  standardized_name <- str_replace_all(city_name, "[ /]", "-")
+  standardized_name <- tolower(standardized_name)
+  
+  # Correcting common misspellings and variations
+  corrections <- c(
+    "riberao-preto" = "ribeirao-preto",
+    "piumhii" = "piumhi",
+    "brasilia-df" = "brasilia",
+    "brasilia-sp" = "brasilia",
+    "mogi-guacu" = "mogi-guacu",
+    "balenario-camboriu" = "balneario-camboriu",
+    "balneario-picarras" = "balneario-picarras",
+    "barbacena-minas-gerais" = "barbacena",
+    "cachoeiras-de-macacu" = "cachoeiras-de-macacu",
+    "cariacica-es" = "cariacica",
+    "carapicuiba-sao-paulo" = "carapicuiba",
+    "lago-sul" = "brasilia",
+    "bonfim-paulista" = "ribeirao-preto",
+    "ribeirao-preto-sao-paulo" = "ribeirao-preto",
+    "ribeirao-pretp" = "ribeirao-preto",
+    "riberao-preto" = "ribeirao-preto",
+    "robeirao-preto" = "ribeirao-preto",
+    "s-jose-do-rio-preto" = "sao-jose-do-rio-preto",
+    "santo-andre-sao-paulo" = "santo-andre",
+    "sao-jose-do-rio-pret" = "sao-jose-do-rio-preto",
+    "sao-paulo-sp" = "sao-paulo",
+    "sao-paulop" = "sao-paulo",
+    "sao-paluo" = "sao-paulo",
+    "sao-caetano-do-sul" = "sao-caetano-do-sul",
+    "cascavael" = "cascavel",
+    "ferraz-de-vasconcelos" = "ferraz-de-vasconcelos",
+    "floranopolis" = "florianopolis",
+    "garulhos" = "guarulhos",
+    "itapaje" = "itapage",
+    "portoferreira" = "porto-ferreira",
+    "rio-de-janeiro-rio-de-janeiro" = "rio-de-janeiro",
+    "rio-de-janeiro-rio-de-janeiro-brasil" = "rio-de-janeiro",
+    "sao-bernardo-do-capo" = "sao-bernardo-do-campo",
+    "sao-jorge-doeste" = "sao-jorge-d'oeste",
+    "sao-jorge-do-oeste" = "sao-jorge-d'oeste",
+    "sao-jose-dos-pinhas" = "sao-jose-dos-pinhais",
+    "sao-luis-do-paraitinga" = "sao-luiz-do-paraitinga",
+    "sao-miguel-do-oeste" = "sao-miguel-d'oeste",
+    "tabao-da-serra" = "taboao-da-serra",
+    "scao-jose-do-rio-pardo" = "sao-jose-do-rio-pardo"
+  )
+
+# Apply corrections if the name is in the list
+  if (standardized_name %in% names(corrections)) {
+    return(corrections[[standardized_name]])
+  } else {
+    return(standardized_name)
+  }
+}
+
+# Apply the function to the dataframe using map instead of sapply
+geo_df_delivered <- geo_df_delivered %>%
+  mutate(
+    seller_city = map_chr(seller_city, standardize_city_names),
+    sell_geo_city = map_chr(sell_geo_city, standardize_city_names),
+    customer_city = map_chr(customer_city, standardize_city_names),
+    cust_geo_city = map_chr(cust_geo_city, standardize_city_names)
+  )
+
+# Displaying the first few rows after standardization
+head(geo_df_delivered)
+```
+
+```{r}
+# Check mismatches
+mismatched_geos_citystate = geo_df_delivered %>%
+  filter(
+    (seller_city != sell_geo_city | seller_state != sell_geo_state) | (customer_city != cust_geo_city | customer_state != cust_geo_state)
+  ) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state )
+
+# Check mismatches separately for seller vs customer data
+mismatched_seller_geos = geo_df_delivered %>%
+  filter(seller_city != sell_geo_city | seller_state != sell_geo_state) %>%
+  select(order_id, seller_id, seller_zip_code_prefix, seller_city, sell_geo_city, seller_state, sell_geo_state)
+
+mismatched_customer_geos = geo_df_delivered %>%
+  filter(customer_city != cust_geo_city | customer_state != cust_geo_state) %>%
+  select(order_id, customer_city, cust_geo_city, customer_state, cust_geo_state, customer_zip_code_prefix)
+
+
+
+dim(mismatched_geos_citystate)
+dim(mismatched_seller_geos)
+dim(mismatched_customer_geos)
+dim(geo_df_delivered)
+```
+
+```{r}
+library(dplyr)
+
+# Filtering out rows with mismatched city or state names
+geo_df_delivered_cleaned <- geo_df_delivered %>%
+  filter(
+    seller_city == sell_geo_city & seller_state == sell_geo_state &
+    customer_city == cust_geo_city & customer_state == cust_geo_state
+  )
+
+# Check the dimensions of the cleaned dataframe
+dim(geo_df_delivered_cleaned)
+
+```
+```{r}
+# Start preparing data for leaflet map plotting. 
+install.packages("leaflet")
+```
+
+```{r}
+num_states = n_distinct(geo_df_delivered$seller_state)
+num_cities = n_distinct(geo_df_delivered$seller_city)
+num_zips = n_distinct(geo_df_delivered$seller_zip_code_prefix)
+
+print(c(num_states, num_cities, num_zips))
+
+```
+
+```{r}
+# Download geobr and censobr data
+
+library(geobr)
+library(dplyr)
+library(ggplot2)
+
+# download data
+tracts_basico <- read_tracts(year = 2010, dataset = "Basico", showProgress = FALSE)
+tracts_income <- read_tracts(year = 2010, dataset = "DomicilioRenda", showProgress = FALSE)
+
+# select columns
+tracts_basico <- tracts_basico |> select('code_tract','V002')
+tracts_income <- tracts_income |> select('code_tract','V003')
+
+# merge
+tracts_df <- left_join(tracts_basico, tracts_income) |> collect()
+
+# calculate income per capita
+tracts_df <- tracts_df |> mutate(income_pc = V003 / V002)
+
+tracts <- read_census_tract(code_tract = "all", year=2010)
+
+```
+
+
+
+```{r}
+# Add seller and customer income per capita to geo_df_delivered_cleaned
+
+# Convert full_df locations into spatial objects
+
+library(dplyr)
+library(sf)
+
+# filter out na rows for customer and seller lon/lat
+
+customer_locations = geo_df_delivered_cleaned %>%
+  filter(!is.na(cust_geo_lng) & !is.na(cust_geo_lng)) %>%
+  st_as_sf(coords = c("cust_geo_lng", "cust_geo_lat"), crs = 4326)
+
+seller_locations = geo_df_delivered_cleaned %>%
+  filter(!is.na(sell_geo_lng) & !is.na(sell_geo_lat)) %>%
+  st_as_sf(coords = c("sell_geo_lng",
+                               "sell_geo_lat"), crs = 4326)
+
+# Transform geolocations to matching formats
+customer_locations = st_transform(customer_locations, crs = 4674)
+seller_locations = st_transform(seller_locations, crs = 4674)
+
+# Ensure tracts data is valid
+# tracts <- st_make_valid(tracts)
+
+# Perform Spatial Join for Customers
+customer_tracts <- st_join(customer_locations, tracts)
+customer_tracts <- customer_tracts %>% rename(cust_geometry = geometry)
+
+# Perform Spatial Join for Sellers
+seller_tracts <- st_join(seller_locations, tracts)
+seller_tracts <- seller_tracts %>% rename(sell_geometry = geometry)
+
+# Join with tracts_df to get income, pop and income p/c
+customer_tracts_incomepc <- left_join(customer_tracts, tracts_df, by = "code_tract")
+seller_tracts_incomepc <- left_join(seller_tracts, tracts_df, by = "code_tract")
+
+# Convert to DFs and group by unique ids
+customer_incomepc <- as.data.frame(customer_tracts_incomepc) %>%
+  group_by(customer_unique_id) %>%
+  summarise(cust_incomepc = mean(income_pc))
+
+seller_incomepc <- as.data.frame(seller_tracts_incomepc) %>%
+  group_by(seller_id) %>%
+  summarise(sell_incomepc = mean(income_pc))
+
+# Add urban/rural class for customers and sellers
+# Rename columns to avoid overlap
+customer_urban_rural <- customer_tracts_incomepc %>%
+  select(customer_unique_id, zone) %>%
+  distinct() %>%
+  rename(cust_zone = zone)
+
+seller_urban_rural <- seller_tracts_incomepc %>%
+  select(seller_id, zone) %>%
+  distinct() %>%
+  rename(sell_zone = zone)
+
+# Merge summarized metrics back into main DF
+# Merge urban/rural back into main DF with explicit column names
+geo_df_delivered_cleaned_census <- geo_df_delivered_cleaned %>%
+  left_join(customer_incomepc, by = "customer_unique_id") %>%
+  left_join(seller_incomepc, by = "seller_id") %>%
+  left_join(customer_urban_rural, by = "customer_unique_id") %>%
+  left_join(seller_urban_rural, by = "seller_id")
+
+
+str(geo_df_delivered_cleaned_census)
+```
+
+```{r}
+# Check accuracy with plot
+
+library(ggplot2)
+library(sf)
+
+# Plot a subset of tracts and points
+ggplot() +
+  geom_sf(data = tracts[sample(nrow(tracts), 1000), ], fill = 'lightblue', color = 'black') +
+  geom_sf(data = customer_locations[sample(nrow(customer_locations), 500), ], color = 'red', size = 0.5) +
+  geom_sf(data = seller_locations[sample(nrow(seller_locations), 500), ], color = 'green', size = 0.5) +
+  theme_minimal() +
+  labs(title = "Spatial Join Check: Tracts, Customer and Seller Locations")
+
+
+```
+
+```{r}
+# Save the geo_df_delivered_clean_census to use later as needed
+getwd()
+geo_df_delivered_cleaned_census <- readRDS("geo_df_delivered_clean_census.rds")
+str(geo_df_delivered_cleaned_census)
+str(geo_df_final_prep)
+```
+
+```{r}
+#Check and filter out multiple geography points per zip prefix
+
+# Checking unique geometries for customer_zip_code_prefix
+unique_cust_geo <- geo_df_final_prep %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarise(unique_geometries = n_distinct(cust_geometry)) %>%
+  filter(unique_geometries > 1)
+
+# Checking unique geometries for seller_zip_code_prefix
+unique_sell_geo <- geo_df_final_prep %>%
+  group_by(seller_zip_code_prefix) %>%
+  summarise(unique_geometries = n_distinct(sell_geometry)) %>%
+  filter(unique_geometries > 1)
+
+# Extract zip code prefixes with multiple geometries
+conflicting_zip_prefixes <- unique_cust_geo$customer_zip_code_prefix
+
+# Remove these conflicting entries from the main dataset
+geo_df_final_prep_cleaned <- geo_df_final_prep %>%
+  filter(!(customer_zip_code_prefix %in% conflicting_zip_prefixes))
+
+
+```
+
+
+```{r}
+# Create the dataframe for geographic visualizations
+
+library(dplyr)
+library(lubridate)
+options(scipen = 999)
+
+# first create a new orders dataframe to use
+geo_df_final_prep <- geo_df_delivered_cleaned_census
+
+
+# Create year_month in the orders dataframe for monthly aggregation
+geo_df_final_prep <- geo_df_final_prep %>%
+  mutate(year_month = floor_date(order_purchase_timestamp, "month"))
+
+
+# calc unique zip code prefixes for final DF
+unique_customer_zips <- unique(geo_df_final_prep$customer_zip_code_prefix)
+
+unique_seller_zips <- unique(geo_df_final_prep$seller_zip_code_prefix)
+
+combined_unique_zips = unique(c(unique_seller_zips, unique_customer_zips))
+
+df_zip_codes <- data.frame(zip_code_prefix = combined_unique_zips)
+
+# Get max rows for final DF as a check for joins
+num_unique_zip_prefixes <- n_distinct(df_zip_codes$zip_code_prefix)
+
+num_unique_year_month <- n_distinct(geo_df_final_prep$year_month)
+
+max_rows_expected <- num_unique_zip_prefixes * num_unique_year_month
+
+max_rows_expected
+
+
+# Pull out customer DF columns needed for geo calcs
+customer_geo_df <- geo_df_final_prep %>%
+  select(order_purchase_timestamp, year_month, customer_unique_id, customer_zip_code_prefix, customer_city, customer_state, cust_geo_lat, cust_geo_lng, price, freight_value, units_ordered, cust_incomepc)
+
+# Calculate old vs new customers per year_month and zip
+# First see if customer_unique_ids are unique to one zip code prefix
+customer_zip_count <- customer_geo_df %>%
+  group_by(customer_unique_id) %>%
+  summarize(unique_zip_count = n_distinct(customer_zip_code_prefix)) %>%
+  ungroup ()
+
+id_zip_duplicates <- customer_zip_count %>%
+  filter(unique_zip_count > 1)
+
+# Since there are 220 duplicated customer_unique_ids I will make them unique with a new_cust_id column
+customer_geo_df <- customer_geo_df %>%
+  group_by(customer_unique_id, customer_zip_code_prefix) %>%
+  mutate(new_cust_id = paste(customer_unique_id, row_number(), sep = ".")) %>%
+  ungroup()
+
+# Calculate first purchase date for new vs returning customer calc
+customer_geo_df <- customer_geo_df %>%
+  group_by(new_cust_id) %>%
+  mutate(first_purchase_date = min(order_purchase_timestamp)) %>%
+  ungroup()
+
+# Determine customer new vs returning
+customer_geo_df <- customer_geo_df %>%
+  mutate(
+    customer_new_returning = if_else(
+      floor_date(first_purchase_date, "month") == year_month,
+      "new",
+      "returning"
+    )
+  )
+
+
+# Since lat and lng are the same for each zip prefix, start customer monthly calcs
+
+customer_geo_df_monthly <- customer_geo_df %>%
+  group_by(year_month, customer_zip_code_prefix, customer_city, customer_state, cust_geo_lat, cust_geo_lng) %>%
+  mutate(
+    total_cust_month = n_distinct(new_cust_id),
+    cust_sales_month = sum(price * units_ordered),
+    cust_revenue_month = sum((price + freight_value) * units_ordered),
+    cust_zip_incomepc = first(cust_incomepc),
+    new_cust_month = sum(customer_new_returning == "new"),
+    returning_cust_month = sum(customer_new_returning == "returning")
+  )
+
+# Continue with cumulative customer metrics
+customer_geo_df_monthly = customer_geo_df_monthly %>%
+  arrange(year_month, customer_zip_code_prefix) %>%
+  group_by(year_month, customer_zip_code_prefix) %>%
+  mutate(
+    total_cust_cum = cumsum(total_cust_month),
+    cust_sales_cum = cumsum(cust_sales_month),
+    cust_revenue_cum = cumsum(cust_revenue_month),
+    avg_clv = ifelse(total_cust_cum > 0, cust_sales_cum / total_cust_cum, 0)
+  ) 
+```
+
+
+```{r}
+# Next create seller DFs
+# Pull out seller DF columns needed for geo calcs
+seller_geo_df <- geo_df_final_prep %>%
+  select(order_purchase_timestamp, year_month, seller_id, seller_zip_code_prefix, seller_city, seller_state, sell_geo_lat, sell_geo_lng, price, freight_value, units_ordered, sell_incomepc)
+
+# Calculate old vs new sellers per year_month and zip
+# First see if seller_ids are unique to one zip code prefix
+seller_zip_count <- seller_geo_df %>%
+  group_by(seller_id) %>%
+  summarize(unique_zip_count = n_distinct(seller_zip_code_prefix)) %>%
+  ungroup ()
+
+id_zip_duplicates <- seller_zip_count %>%
+  filter(unique_zip_count > 1)
+
+# Since no zip duplicates for sellers, continue to creating first and last sale dates
+seller_geo_df <- seller_geo_df %>%
+  group_by(seller_id) %>%
+  mutate(
+    first_sale_date = min(order_purchase_timestamp),
+    last_sale_date = max(order_purchase_timestamp)
+  )
+
+# Create new vs old seller
+seller_geo_df <- seller_geo_df %>%
+  mutate(
+    seller_new_old = if_else(
+      floor_date(first_sale_date, "month") == year_month,
+      "new",
+      "old"
+    )
+  )
+
+# Create monthly seller geo df and calc metrics
+seller_geo_df_monthly <- seller_geo_df %>%
+  group_by(year_month, seller_zip_code_prefix, seller_city, seller_state, sell_geo_lat, sell_geo_lng) %>%
+  mutate(
+    active_sellers_month = sum(floor_date(first_sale_date, "month") == year_month | 
+                                 (floor_date(first_sale_date, "month") < year_month & 
+                                    floor_date(last_sale_date, "month") >= year_month)),
+    new_sellers_month = sum(seller_new_old == "new"),
+    old_sellers_month = sum(seller_new_old == "old"),
+    seller_sales_month = sum(price * units_ordered),
+    seller_revenue_month = sum((price + freight_value) * units_ordered)
+  ) %>%
+  ungroup()
+
+# Calc cumulative seller metrics
+seller_geo_df_monthly <- seller_geo_df_monthly %>%
+  arrange(year_month, seller_zip_code_prefix) %>%
+  group_by(year_month, seller_zip_code_prefix) %>%
+  mutate(
+    active_sellers_cum = cumsum(active_sellers_month),
+    seller_sales_cum = cumsum(seller_sales_month),
+    seller_revenue_cum = cumsum(seller_revenue_month),
+    total_seller_lv = (active_sellers_cum * 99) + (seller_sales_cum * 0.2),
+    avg_seller_lv = if_else(active_sellers_cum > 0, total_seller_lv / active_sellers_cum, 0)
+  )
+
+```
+
+
+```{r}
+# Check that geographic columns match in customer and seller DFs
+
+# First create summary tables of unique geo instances
+library(dplyr)
+
+# Create summary tables
+customer_geo_summary <- customer_geo_df_monthly %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarize(
+    cust_lat = first(cust_geo_lat),
+    cust_long = first(cust_geo_lng),
+    cust_city = first(customer_city),
+    cust_state = first(customer_state),
+    cust_incomepc = first(cust_zip_incomepc)
+  )
+
+seller_geo_summary <- seller_geo_df_monthly %>%
+  group_by(seller_zip_code_prefix) %>%
+  summarize(
+    sell_lat = first(sell_geo_lat),
+    sell_long = first(sell_geo_lng),
+    sell_city = first(seller_city),
+    sell_state = first(seller_state),
+    sell_incomepc = first(sell_incomepc)
+  )
+
+# Merge summary tables
+geo_data_merged <- merge(customer_geo_summary, seller_geo_summary, 
+                         by.x = "customer_zip_code_prefix", by.y = "seller_zip_code_prefix", 
+                         all = FALSE)
+
+# Check for mismatches
+mismatched_geo_data <- geo_data_merged %>%
+  filter(
+    (cust_lat != sell_lat & !is.na(cust_lat) & !is.na(sell_lat)) |
+    (cust_long != sell_long & !is.na(cust_long) & !is.na(sell_long)) |
+    (cust_city != sell_city & !is.na(cust_city) & !is.na(sell_city)) |
+    (cust_state != sell_state & !is.na(cust_state) & !is.na(sell_state)) |
+    (cust_incomepc != sell_incomepc & !is.na(cust_incomepc) & !is.na(sell_incomepc))
+  )
+
+# Remove mismatches from DFs
+mismatched_zips = mismatched_geo_data$customer_zip_code_prefix
+
+customer_geo_df_monthly <- customer_geo_df_monthly %>%
+  filter(!(customer_zip_code_prefix %in% mismatched_zips))
+
+seller_geo_df_monthly <- seller_geo_df_monthly %>%
+  filter(!(seller_zip_code_prefix %in% mismatched_zips))
+
+```
+
+```{r}
+# Merge customer and seller geo monthly DFs
+# First remove unnecessary columns from both dataframes
+customer_geo_df_monthly <- select(customer_geo_df_monthly, -c(order_purchase_timestamp, customer_unique_id, new_cust_id, price, freight_value, units_ordered, first_purchase_date, customer_new_returning))
+seller_geo_df_monthly <- select(seller_geo_df_monthly, -c(order_purchase_timestamp, seller_id, price, freight_value, units_ordered, first_sale_date, last_sale_date, seller_new_old))
+
+# Then rename zip code prefix columns to make merging easier
+customer_geo_df_monthly <- customer_geo_df_monthly %>%
+  rename(zip_code_prefix = customer_zip_code_prefix)
+
+seller_geo_df_monthly <- seller_geo_df_monthly %>%
+  rename(zip_code_prefix = seller_zip_code_prefix)
+
+# Merging the dataframes on zip code prefixes and year_month
+final_geo_df <- merge(customer_geo_df_monthly, seller_geo_df_monthly, 
+                   by = c("zip_code_prefix", "year_month"), 
+                   all = TRUE)
+
+
+```
+
+```{r}
+#Save final_geo_df as rds
+
+saveRDS(final_geo_df, "final_geo_df.rds")
+str(final_geo_df)
+getwd()
+final_geo_df = readRDS("..\\Data\\GCP Geo\\final_geo_df.rds")
+seller_tracts = readRDS("seller_tracts.rds")
+customer_tracts = readRDS("customer_tracts.rds")
+```
+
+
+```{r}
+# Prepare data for leaflet mapping by adding code_tract, code_muni and code_state to get spatial data
+library(sf)
+library(dplyr)
+
+
+# First create a merged version of customer_tracts and seller_tracts that only includes geo data I need
+customer_tracts_simple <- customer_tracts %>%
+  select(customer_zip_code_prefix, code_tract, code_muni, code_state) %>%
+  rename(zip_code_prefix = customer_zip_code_prefix) %>%
+  mutate(zip_code_prefix = sprintf("%05d", as.numeric(zip_code_prefix))) %>%
+  st_drop_geometry()
+
+seller_tracts_simple <- seller_tracts %>%
+  select(seller_zip_code_prefix, code_tract, code_muni, code_state) %>%
+  rename(zip_code_prefix = seller_zip_code_prefix) %>%
+  mutate(zip_code_prefix = sprintf("%05d", as.numeric(zip_code_prefix))) %>%
+  st_drop_geometry()
+
+# names(customer_tracts_simple)
+# names(seller_tracts_simple)
+
+# Ensure cust and seller tracts simple have matching geo codes per zip prefix
+combined_tracts <- rbind(customer_tracts_simple, seller_tracts_simple)
+
+# Check mismatches
+consistency_check <- combined_tracts %>%
+  group_by(zip_code_prefix) %>%
+  summarize(
+    unique_tract_count = n_distinct(code_tract),
+    unique_muni_count = n_distinct(code_muni),
+    unique_state_count = n_distinct(code_state)
+  )
+
+inconsistencies <- consistency_check %>%
+  filter(unique_tract_count > 1 | unique_muni_count > 1 | unique_state_count > 1)
+
+# Confirm zips with mismatches are in the final geo DF
+inconsistencies_final <- filter(inconsistencies, zip_code_prefix %in% final_geo_df$zip_code_prefix)
+
+# Look at tracts that are inconsistent
+# First filter combined tracts to just unique rows
+combined_tracts_unique <- combined_tracts %>%
+  distinct()
+
+combined_tracts_inconsistent_tracts <- filter(combined_tracts_unique, zip_code_prefix %in% inconsistencies_final$zip_code_prefix) 
+
+# spatially combine inconsistent tracts for the same zip prefix
+library(geobr)
+# download all census tracts spatial data
+all_tracts_brazil <- read_census_tract(code_tract = "all", year = 2010, showProgress = TRUE)
+
+# Filter for just inconsistency tracts of interest
+inconsistency_tracts_spatial <- all_tracts_brazil[all_tracts_brazil$code_tract %in% combined_tracts_inconsistent_tracts$code_tract,]
+
+# Combine the spatial data for inconsistency tracts into one spatial multipolygon
+# Merge to add zip_code_prefix to spatial data
+combined_spatial_inconsistencies <- inconsistency_tracts_spatial %>%
+  left_join(combined_tracts_inconsistent_tracts, by = "code_tract")
+
+library(sf)
+
+# Group by zip_code_prefix and combine polygons
+combined_tracts_by_zip <- combined_spatial_inconsistencies %>%
+  group_by(zip_code_prefix) %>%
+  summarize(geometry = st_union(geom), .groups = 'drop')
+
+# Now add all spatial data to combined_tracts_unique
+# First add spatial data from all_tracts_brazil (geobr)
+
+brazil_tracts_geo <- all_tracts_brazil %>%
+  select(code_tract, geom)
+
+combined_tracts_geo <- combined_tracts_unique %>%
+  left_join(brazil_tracts_geo, by = "code_tract")
+
+inconsistent_geo <- combined_tracts_by_zip %>%
+  select(zip_code_prefix, geometry)
+
+# Renaming geometry column in inconsistent_geo to match combined_tracts_geo
+inconsistent_geo <- inconsistent_geo %>%
+  rename(geom = geometry)
+
+library(dplyr)
+
+# Now replace data for inconsistent zip codes in the main geo df with the aggregated geometry
+
+# Step 1: Separate rows to replace and rows to keep
+tracts_to_replace <- combined_tracts_geo %>%
+  filter(zip_code_prefix %in% inconsistent_geo$zip_code_prefix)
+
+tracts_to_keep <- combined_tracts_geo %>%
+  filter(!zip_code_prefix %in% inconsistent_geo$zip_code_prefix)
+
+# Step 2: Update the geometry of rows to replace
+tracts_to_replace_updated <- tracts_to_replace %>%
+  select(-geom) %>%
+  left_join(inconsistent_geo, by = "zip_code_prefix")
+
+# Step 3: Combine the updated rows with the ones to keep
+combined_tracts_final <- bind_rows(tracts_to_keep, tracts_to_replace_updated)
+
+# Next join all the data to the final_geo_df
+final_geo_df_geom = final_geo_df %>%
+  left_join(combined_tracts_final, by = "zip_code_prefix", suffix = c("_final_geo", "_combined_tracts"))
+
+# Rename the geom column to geom_tracts to be clear
+final_geo_df_geom <- final_geo_df_geom %>%
+  rename(geom_tracts = geom)
+
+# Last major step is to add geometry for all municipalities and states
+# First download the data
+all_munis_brazil <- read_municipality(code_muni = "all", year = 2010, showProgress = TRUE)
+all_states_brazil <- read_state(code_state = "all", year = 2010, showProgress = TRUE)
+
+# Second check that all our muni and state codes are in the downloaded data
+all_muni_codes = all(unique(final_geo_df_geom$code_muni) %in% all_munis_brazil$code_muni)
+print(paste("All muni codes: present:", all_muni_codes))
+
+all_state_codes_present <- all(unique(final_geo_df_geom$code_state) %in% all_states_brazil$code_state)
+print(paste("All state codes present:", all_state_codes_present))
+
+# Third identify which muni and state codes are in final_geo_df_geom but not in downloaded data
+missing_muni_codes <- setdiff(unique(final_geo_df_geom$code_muni[!is.na(final_geo_df_geom$code_muni)]), 
+                              all_munis_brazil$code_muni)
+print("Missing municipal codes:")
+print(missing_muni_codes)
+
+missing_state_codes <- setdiff(unique(final_geo_df_geom$code_state[!is.na(final_geo_df_geom$code_state)]), 
+                               all_states_brazil$code_state)
+print("Missing state codes:")
+print(missing_state_codes)
+
+# Since only missing codes are NA values, go ahead and merge municipal geometries
+final_geo_df_geom <- final_geo_df_geom %>%
+  left_join(all_munis_brazil %>% select(code_muni, geom), by = "code_muni") %>%
+  rename(geom_munis = geom)
+
+# Merge state geometries
+final_geo_df_geom <- final_geo_df_geom %>%
+  left_join(all_states_brazil %>% select(code_state, geom), by = "code_state") %>%
+  rename(geom_states = geom)
+
+```
+
+```{r}
+# Since the DF with geometry by zip is too big, we'll make separate dataframes for municipality data with geometry and state geometry
+
+# First aggregate the data at the municipal level
+
+muni_geo_df_geom <- final_geo_df_geom %>%
+  group_by(code_muni, year_month) %>%
+  summarize(
+    state = first(customer_state),
+    city = first(customer_city),
+    total_cust_month = sum(total_cust_month, na.rm = TRUE),
+    cust_sales_month = sum(cust_sales_month, na.rm = TRUE),
+    cust_revenue_month = sum(cust_revenue_month, na.rm = TRUE),
+    new_cust_month = sum(new_cust_month, na.rm = TRUE),
+    returning_cust_month = sum(returning_cust_month, na.rm = TRUE),
+    total_cust_cum = sum(total_cust_cum, na.rm = TRUE),
+    cust_sales_cum = sum(cust_sales_cum, na.rm = TRUE),
+    cust_revenue_cum = sum(cust_revenue_cum, na.rm = TRUE),
+    active_sellers_month = sum(active_sellers_month, na.rm = TRUE),
+    new_sellers_month = sum(new_sellers_month, na.rm = TRUE),
+    old_sellers_month = sum(old_sellers_month, na.rm = TRUE),
+    seller_sales_month = sum(seller_sales_month, na.rm = TRUE),
+    seller_revenue_month = sum(seller_revenue_month, na.rm = TRUE),
+    active_sellers_cum = sum(active_sellers_cum, na.rm = TRUE),
+    seller_sales_cum = sum(seller_sales_cum, na.rm = TRUE),
+    seller_revenue_cum = sum(seller_revenue_cum, na.rm = TRUE),
+    total_seller_lv = sum(total_seller_lv, na.rm = TRUE),
+    code_state = first(code_state),
+    .groups = 'drop'
+  )
+
+# Next add avg columns by recalculating
+muni_geo_df_geom <- muni_geo_df_geom %>%
+  mutate(
+    avg_clv = ifelse(total_cust_cum > 0, cust_sales_cum / total_cust_cum, 0),
+    avg_seller_lv = if_else(active_sellers_cum > 0, total_seller_lv / active_sellers_cum, 0)
+  )
+
+
+final_muni_geom <- muni_geo_df_geom %>%
+  left_join(all_munis_brazil %>% select(code_muni, geom), by = "code_muni") %>%
+  rename(geom_munis = geom)
+
+# Now repeat for state level DF
+
+state_geo_df_geom <- final_geo_df_geom %>%
+  group_by(code_state, year_month) %>%
+  summarize(
+    state = first(customer_state),
+    total_cust_month = sum(total_cust_month, na.rm = TRUE),
+    cust_sales_month = sum(cust_sales_month, na.rm = TRUE),
+    cust_revenue_month = sum(cust_revenue_month, na.rm = TRUE),
+    new_cust_month = sum(new_cust_month, na.rm = TRUE),
+    returning_cust_month = sum(returning_cust_month, na.rm = TRUE),
+    total_cust_cum = sum(total_cust_cum, na.rm = TRUE),
+    cust_sales_cum = sum(cust_sales_cum, na.rm = TRUE),
+    cust_revenue_cum = sum(cust_revenue_cum, na.rm = TRUE),
+    active_sellers_month = sum(active_sellers_month, na.rm = TRUE),
+    new_sellers_month = sum(new_sellers_month, na.rm = TRUE),
+    old_sellers_month = sum(old_sellers_month, na.rm = TRUE),
+    seller_sales_month = sum(seller_sales_month, na.rm = TRUE),
+    seller_revenue_month = sum(seller_revenue_month, na.rm = TRUE),
+    active_sellers_cum = sum(active_sellers_cum, na.rm = TRUE),
+    seller_sales_cum = sum(seller_sales_cum, na.rm = TRUE),
+    seller_revenue_cum = sum(seller_revenue_cum, na.rm = TRUE),
+    total_seller_lv = sum(total_seller_lv, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# Next add avg columns by recalculating
+state_geo_df_geom <- state_geo_df_geom %>%
+  mutate(
+    avg_clv = ifelse(total_cust_cum > 0, cust_sales_cum / total_cust_cum, 0),
+    avg_seller_lv = if_else(active_sellers_cum > 0, total_seller_lv / active_sellers_cum, 0)
+  )
+
+
+final_state_geom <- state_geo_df_geom %>%
+  left_join(all_states_brazil %>% select(code_state, geom), by = "code_state") %>%
+  rename(geom_states = geom)
+
+
+```
+
+
+
+```{r}
+# Estimate the size of final_geo_df_geom in memory
+estimated_size <- object.size(final_state_geom)
+
+# Print the estimated size in MB
+print(paste("Estimated size in memory:", round(estimated_size / 1024^2, 2), "MB"))
+
+```
+
+```{r}
+saveRDS(final_muni_geom, "D:\\Geometric\\final_muni_geom.rds")
+saveRDS(final_state_geom, "D:\\Geometric\\final_state_geom.rds")
+```
+
+
+```{r}
+# Simplify final_muni_geom to make it smaller
+
+# First make all the columns valid
+chunk_size <- 5000
+list_of_chunks<- split(final_muni_geom, ceiling(seq_len(nrow(final_muni_geom))/chunk_size))
+
+processed_chunks <- lapply(list_of_chunks, function(chunk) {
+  chunk$geom_munis <- st_make_valid(chunk$geom_munis)
+  return(chunk)
+})
+
+# Recombining the chunks
+final_muni_geom_valid <- bind_rows(processed_chunks)
+
+
+# Do the same for state DF
+# First make all the columns valid
+chunk_size <- 5000
+list_of_chunks<- split(final_state_geom, ceiling(seq_len(nrow(final_state_geom))/chunk_size))
+
+processed_chunks <- lapply(list_of_chunks, function(chunk) {
+  chunk$geom_states <- st_make_valid(chunk$geom_states)
+  return(chunk)
+})
+
+# Recombining the chunks
+final_state_geom_valid <- bind_rows(processed_chunks)
+
+```
+
+```{r}
+
+# Save muni and state DFs as RDS file
+saveRDS(final_muni_geom_valid, "final_muni_geom_valid.rds")
+saveRDS(final_state_geom_valid, "final_state_geom_valid.rds")
+```
+
+
+
+
+
+
+
+
+
+
