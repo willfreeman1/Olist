@@ -1,0 +1,83 @@
+```{r}
+# Calculate Seller Acquisition & Churn Estimates
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+orders_items = merge(orders, order_items, by = "order_id")
+
+orders_items_delivered <- orders_items %>%
+  filter(order_status == "delivered")
+
+# Convert orders_items to date and extract month
+orders_items <- orders_items %>%
+  mutate(
+    order_purchase_timestamp = as.Date(order_purchase_timestamp),
+    year_month = format(order_purchase_timestamp, "%Y-%m")
+  )
+
+# Create DF with monthly sales per seller
+monthly_sales_per_seller <- orders_items %>%
+  group_by(seller_id, year_month) %>%
+  summarize(sales_count = n(), .groups = "drop")
+
+
+monthly_sales_per_seller <- monthly_sales_per_seller %>%
+  mutate(
+    year_month = as.Date(paste0(year_month, "-01"))  # Append '-01' to convert to the first day of the month
+  )
+
+```
+
+```{r}
+# Analyze gaps in seller sales
+seller_gaps <- monthly_sales_per_seller %>%
+  arrange(seller_id, year_month) %>%
+  group_by(seller_id) %>%
+  mutate(
+    next_sale_month = lead(year_month),
+    gap = as.numeric(difftime(next_sale_month, year_month, units = "days")) / 30.44
+  ) %>%
+  ungroup()
+
+gap_analysis <- seller_gaps %>%
+  filter(!is.na(gap)) %>%
+  count(gap) %>%
+  arrange(gap)
+
+write.csv(gap_analysis, "gap_analysis_1.csv")
+getwd()
+  
+```
+
+```{r}
+# Apply churn threshold to estimate monthly seller_changes
+
+# Identify sellers active in July 18 and inactive in Aug 18
+
+active_july_inactive_august <- monthly_sales_per_seller %>%
+  filter(year_month == as.Date("2018-07-01") | year_month == as.Date("2018-08-01")) %>%
+  group_by(seller_id) %>%
+  summarise(
+    active_july = any(year_month == as.Date("2018-07-01")),
+    active_august = any(year_month == as.Date("2018-08-01"))
+  ) %>%
+  filter(active_july & !active_august) %>%
+  ungroup()
+
+# Calculate estimated churned sellers for July 2018
+estimated_churn_july_2018 <- nrow(active_july_inactive_august) * 0.4
+
+# Adjust the monthly_seller_changes for July 2018
+monthly_seller_changes <- monthly_seller_changes %>%
+  mutate(
+    lost_sellers = ifelse(month == as.Date("2018-07-01"), estimated_churn_july_2018, lost_sellers)
+  )
+
+
+monthly_seller_changes <- monthly_seller_changes %>%
+  mutate(net_change = new_sellers - lost_sellers)
+```
+
