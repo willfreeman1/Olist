@@ -61,8 +61,7 @@ df_prophet <- rev_from_sellers_daily_timecut %>%
  historical_data <- df_prophet %>% filter(ds <= cutoff_date)
  forecast_data <- forecast %>% filter(ds >= cutoff_date)
 
-saveRDS(historical_data, "..//Olist_1//historical_data.rds")
-saveRDS(forecast_data, "..//Olist_1//forecast_data.rds")
+
  
  historical_data$ds <- as.Date(historical_data$ds)
  forecast_data$ds <- as.Date(forecast_data$ds)
@@ -73,6 +72,9 @@ saveRDS(forecast_data, "..//Olist_1//forecast_data.rds")
  historical_data <- historical_data %>%
    arrange(ds) %>%
    mutate(rolling_mean = rollmean(y, window_size, align = "right", fill = NA))
+ 
+saveRDS(historical_data, "..//Olist_1//historical_data.rds")
+saveRDS(forecast_data, "..//Olist_1//forecast_data.rds")
  
 # Create  base plot with historical data and add forecast line + uncertainty interval
 p <- ggplot() +
