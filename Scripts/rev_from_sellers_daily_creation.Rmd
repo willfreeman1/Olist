@@ -1,0 +1,172 @@
+```{r}
+
+setwd("C://Users//willf//OneDrive//Documents//NYDSA//R//Olist//Data")
+
+# Looking at various dataframe sizes to understand what I can use
+
+
+str(orders_items)
+
+```
+
+```{r}
+# Create Olist Rev from Sellers DF
+
+# First merge orders and order_items
+
+library(dplyr)
+library(tidyr)
+
+orders_items = merge(orders, order_items, by = "order_id")
+
+# Select necessary columns
+rev_from_sellers <- orders_items %>%
+  filter(order_status == "delivered") %>%
+  select(order_id, order_status, order_purchase_timestamp, order_item_id, product_id, seller_id, price, freight_value) %>%
+  mutate(order_purchase_timestamp = as.POSIXct(order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S"))
+
+# Filter out row(s) with missing timestamps
+rev_from_sellers <- rev_from_sellers %>%
+  filter(!is.na(order_purchase_timestamp))
+
+# Create new vs old sellers
+rev_from_sellers <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  mutate(
+    min_timestamp = min(order_purchase_timestamp),
+    seller_status = ifelse(order_purchase_timestamp == min_timestamp, "new", "old")
+  ) %>%
+  ungroup() %>%
+  select(-min_timestamp) 
+
+
+```
+
+
+
+
+```{r}
+# Calculate active SaaS subcribers
+
+library(lubridate)
+
+# Set subscription start and end dates at first and last day of the months of first and last sales
+
+subscription_info <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  summarise(subscription_start = min(order_purchase_timestamp),
+            subscription_end = max(order_purchase_timestamp)) %>%
+  mutate(subscription_start = floor_date(subscription_start, "month"),
+         subscription_end = ceiling_date(subscription_end, "month") - days(1)) %>%
+  ungroup()
+
+# Create unique subsription info for each seller:
+
+unique_subscription_info <- subscription_info %>%
+  mutate(subscription_start = as.Date(subscription_start),
+         subscription_end = as.Date(subscription_end))
+
+# Create DF of seller acquisition and churn 
+new_sellers_monthly = unique_subscription_info %>%
+  group_by(start_month = floor_date(subscription_start, "month")) %>%
+  summarise(new_sellers = n())
+
+lost_sellers_monthly = unique_subscription_info %>%
+  group_by(end_month = floor_date(subscription_end, "month")) %>%
+  summarise(lost_sellers = n())
+
+monthly_seller_changes <- full_join(new_sellers_monthly, lost_sellers_monthly, by = c("start_month" = "end_month")) %>%
+  rename(month = start_month) %>%
+  replace_na(list(new_sellers = 0, lost_sellers = 0))
+
+monthly_seller_changes <- monthly_seller_changes %>%
+  mutate(net_change = new_sellers - lost_sellers)
+
+# Step 2: Expand to Daily Data
+seller_daily_sub <- unique_subscription_info %>%
+  rowwise() %>%
+  mutate(days = list(seq.Date(subscription_start, subscription_end, by = "day"))) %>%
+  unnest(days) %>%
+  mutate(daily_fee = 99 / days_in_month(days)) %>%
+  select(seller_id, days, daily_fee)
+
+# Step 3: Sum Daily Fees (without duplication)
+seller_daily_sub <- seller_daily_sub %>%
+  group_by(days) %>%
+  summarise(daily_fee = sum(daily_fee), .groups = 'drop')
+
+# Join subscription info back to rev_from_sellers
+rev_from_sellers <- rev_from_sellers %>%
+  left_join(subscription_info, by = "seller_id")
+
+```
+
+```{r}
+
+# Since only one timestamp per order we can aggregate main DF by order_id
+rev_from_sellers_byorder_delivered <- rev_from_sellers %>%
+  filter(order_status == "delivered") %>%
+  group_by(order_id) %>%
+  summarise(
+    total_sales = sum(price),
+    total_freight_value = sum(freight_value),
+    total_units_ordered = n_distinct(order_item_id),
+    order_purchase_timestamp = first(order_purchase_timestamp),
+    unique_sellers = n_distinct(seller_id),
+    unique_products = n_distinct(product_id),
+    new_sellers = sum(seller_status == "new"),
+    old_sellers = sum(seller_status == "old"),
+    new_seller_sales = sum(ifelse(seller_status == "new", price, 0)),
+    new_seller_freight = sum(ifelse(seller_status == "new",freight_value, 0)),
+    old_seller_sales = sum(ifelse(seller_status == "old", price, 0)),
+    old_seller_freight = sum(ifelse(seller_status == "old", price, 0)),
+    olist_rev_share = (total_sales * 0.2)) %>%
+    ungroup()
+  
+# Make aggregated DF daily
+rev_from_sellers_daily <- rev_from_sellers_byorder_delivered %>%
+  group_by(order_purchase_timestamp = floor_date(order_purchase_timestamp, "day")) %>%
+  summarise(
+    total_sales = sum(total_sales),
+    total_freight_value = sum(total_freight_value),
+    total_units_ordered = sum(total_units_ordered),
+    unique_sellers = sum(unique_sellers),
+    unique_products= sum(unique_products),
+    new_sellers = sum(new_sellers),
+    old_sellers = sum(old_sellers),
+    new_seller_sales = sum(new_seller_sales),
+    new_seller_freight = sum(new_seller_freight),
+    old_seller_sales = sum(old_seller_sales),
+    old_seller_freight = sum(old_seller_freight),
+    olist_rev_share = sum(olist_rev_share)
+  )
+
+# Merge subscription DF with main daily DF
+rev_from_sellers_daily <- rev_from_sellers_daily %>%
+  left_join(seller_daily_sub, by = c("order_purchase_timestamp" = "days"))
+
+# Create olist_total_rev column
+rev_from_sellers_daily <- rev_from_sellers_daily %>%
+  mutate(olist_total_rev = olist_rev_share + coalesce(daily_fee, 0))
+
+
+```
+
+```{r}
+# Create subscription fee and revenue share breakdown by old vs new sellers
+
+rev_from_sellers_daily <- rev_from_sellers_daily %>%
+  mutate(
+    olist_rev_new_sellers = (new_seller_sales * 0.2),
+    olist_rev_old_sellers = (old_seller_sales * 0.2),
+    olist_fee_new_sellers = (daily_fee / (new_sellers + old_sellers)) * new_sellers,
+    olist_fee_old_sellers = (daily_fee / (new_sellers + old_sellers)) * old_sellers
+  )
+```
+
+
+
+```{r}
+saveRDS(rev_from_sellers_daily, "..//Data//rev_from_sellers_daily.rds")
+```
+

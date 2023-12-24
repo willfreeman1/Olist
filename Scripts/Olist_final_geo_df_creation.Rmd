@@ -6,7 +6,7 @@ output: html_notebook
 ```{r}
 # Data Prep
 library(dplyr)
-geo_df_delivered = readRDS("geo_df_delivered.rds")
+geo_df_delivered = readRDS("..//R_Analysis//geo_df_delivered.rds")
 
 # Check for instances when customer and seller cities and states don't match geolocation data
 
@@ -179,10 +179,7 @@ geo_df_delivered_cleaned <- geo_df_delivered %>%
 dim(geo_df_delivered_cleaned)
 
 ```
-```{r}
-# Start preparing data for leaflet map plotting. 
-install.packages("leaflet")
-```
+
 
 ```{r}
 num_states = n_distinct(geo_df_delivered$seller_state)
@@ -195,8 +192,8 @@ print(c(num_states, num_cities, num_zips))
 
 ```{r}
 # Download geobr and censobr data
-
 library(geobr)
+library(censobr)
 library(dplyr)
 library(ggplot2)
 
@@ -244,7 +241,7 @@ customer_locations = st_transform(customer_locations, crs = 4674)
 seller_locations = st_transform(seller_locations, crs = 4674)
 
 # Ensure tracts data is valid
-# tracts <- st_make_valid(tracts)
+tracts <- st_make_valid(tracts)
 
 # Perform Spatial Join for Customers
 customer_tracts <- st_join(customer_locations, tracts)
@@ -310,14 +307,14 @@ ggplot() +
 
 ```{r}
 # Save the geo_df_delivered_clean_census to use later as needed
-getwd()
-geo_df_delivered_cleaned_census <- readRDS("geo_df_delivered_clean_census.rds")
-str(geo_df_delivered_cleaned_census)
-str(geo_df_final_prep)
+saveRDS(geo_df_delivered_cleaned_census, "..//Data//geo_df_delivered_clean_census.rds")
+
 ```
 
 ```{r}
 #Check and filter out multiple geography points per zip prefix
+
+geo_df_final_prep <- geo_df_delivered_cleaned_census
 
 # Checking unique geometries for customer_zip_code_prefix
 unique_cust_geo <- geo_df_final_prep %>%
@@ -418,14 +415,16 @@ customer_geo_df <- customer_geo_df %>%
 
 customer_geo_df_monthly <- customer_geo_df %>%
   group_by(year_month, customer_zip_code_prefix, customer_city, customer_state, cust_geo_lat, cust_geo_lng) %>%
-  mutate(
+  summarize(
     total_cust_month = n_distinct(new_cust_id),
     cust_sales_month = sum(price * units_ordered),
     cust_revenue_month = sum((price + freight_value) * units_ordered),
     cust_zip_incomepc = first(cust_incomepc),
     new_cust_month = sum(customer_new_returning == "new"),
-    returning_cust_month = sum(customer_new_returning == "returning")
+    returning_cust_month = sum(customer_new_returning == "returning"),
+    .groups = "drop"  # Drops the grouping structure after summarizing
   )
+
 
 # Continue with cumulative customer metrics
 customer_geo_df_monthly = customer_geo_df_monthly %>%
@@ -437,6 +436,41 @@ customer_geo_df_monthly = customer_geo_df_monthly %>%
     cust_revenue_cum = cumsum(cust_revenue_month),
     avg_clv = ifelse(total_cust_cum > 0, cust_sales_cum / total_cust_cum, 0)
   ) 
+```
+```{r}
+# Check that there are no duplicated zip codes per year_month
+duplicate_check <- customer_geo_df_monthly %>%
+  group_by(year_month, customer_zip_code_prefix) %>%
+  summarize(duplicate_count = n(), .groups = "drop") %>%
+  filter(duplicate_count > 1)
+
+print(duplicate_check)
+
+```
+
+
+```{r}
+# Check for unique lat, lng, city, and state per zip_code_prefix
+unique_geo_check <- customer_geo_df %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarize(
+    unique_lat_count = n_distinct(cust_geo_lat),
+    unique_lng_count = n_distinct(cust_geo_lng),
+    unique_city_count = n_distinct(customer_city),
+    unique_state_count = n_distinct(customer_state),
+    .groups = "drop"  # This drops the grouping structure after summarizing
+  )
+
+# View summary to identify any zip_code_prefix with more than one unique value in these columns
+print(unique_geo_check)
+
+# Optionally, filter out rows where there are multiple unique values for lat, lng, city, or state
+# This will help you identify specific zip codes with inconsistencies
+inconsistent_geo <- unique_geo_check %>%
+  filter(unique_lat_count > 1 | unique_lng_count > 1 | unique_city_count > 1 | unique_state_count > 1)
+
+print(inconsistent_geo)
+
 ```
 
 
@@ -477,16 +511,17 @@ seller_geo_df <- seller_geo_df %>%
 # Create monthly seller geo df and calc metrics
 seller_geo_df_monthly <- seller_geo_df %>%
   group_by(year_month, seller_zip_code_prefix, seller_city, seller_state, sell_geo_lat, sell_geo_lng) %>%
-  mutate(
+  summarize(
     active_sellers_month = sum(floor_date(first_sale_date, "month") == year_month | 
                                  (floor_date(first_sale_date, "month") < year_month & 
                                     floor_date(last_sale_date, "month") >= year_month)),
     new_sellers_month = sum(seller_new_old == "new"),
     old_sellers_month = sum(seller_new_old == "old"),
     seller_sales_month = sum(price * units_ordered),
-    seller_revenue_month = sum((price + freight_value) * units_ordered)
-  ) %>%
-  ungroup()
+    seller_revenue_month = sum((price + freight_value) * units_ordered),
+    sell_zip_incomepc = first(sell_incomepc),
+    .groups = "drop"
+  )
 
 # Calc cumulative seller metrics
 seller_geo_df_monthly <- seller_geo_df_monthly %>%
@@ -502,6 +537,17 @@ seller_geo_df_monthly <- seller_geo_df_monthly %>%
 
 ```
 
+```{r}
+# Checking for duplicated seller zip code prefixes within each year_month
+seller_duplicate_check <- seller_geo_df_monthly %>%
+  group_by(year_month, seller_zip_code_prefix) %>%
+  summarize(duplicate_count = n(), .groups = "drop") %>%
+  filter(duplicate_count > 1)
+
+# Viewing the results
+print(seller_duplicate_check)
+
+```
 
 ```{r}
 # Check that geographic columns match in customer and seller DFs
@@ -527,7 +573,7 @@ seller_geo_summary <- seller_geo_df_monthly %>%
     sell_long = first(sell_geo_lng),
     sell_city = first(seller_city),
     sell_state = first(seller_state),
-    sell_incomepc = first(sell_incomepc)
+    sell_incomepc = first(sell_zip_incomepc)
   )
 
 # Merge summary tables
@@ -559,8 +605,8 @@ seller_geo_df_monthly <- seller_geo_df_monthly %>%
 ```{r}
 # Merge customer and seller geo monthly DFs
 # First remove unnecessary columns from both dataframes
-customer_geo_df_monthly <- select(customer_geo_df_monthly, -c(order_purchase_timestamp, customer_unique_id, new_cust_id, price, freight_value, units_ordered, first_purchase_date, customer_new_returning))
-seller_geo_df_monthly <- select(seller_geo_df_monthly, -c(order_purchase_timestamp, seller_id, price, freight_value, units_ordered, first_sale_date, last_sale_date, seller_new_old))
+# customer_geo_df_monthly <- select(customer_geo_df_monthly, -c( customer_unique_id, new_cust_id, price, freight_value, units_ordered, first_purchase_date, customer_new_returning))
+# seller_geo_df_monthly <- select(seller_geo_df_monthly, -c(order_purchase_timestamp, seller_id, price, freight_value, units_ordered, first_sale_date, last_sale_date, seller_new_old))
 
 # Then rename zip code prefix columns to make merging easier
 customer_geo_df_monthly <- customer_geo_df_monthly %>%
@@ -866,12 +912,32 @@ final_state_geom_valid <- bind_rows(processed_chunks)
 
 ```
 
-```{r}
 
-# Save muni and state DFs as RDS file
-saveRDS(final_muni_geom_valid, "final_muni_geom_valid.rds")
-saveRDS(final_state_geom_valid, "final_state_geom_valid.rds")
+```{r}
+library(sf)
+
+
+# Check if each row has a geometry type of "GEOMETRYCOLLECTION"
+is_collection <- sapply(final_muni_geom_valid$geom_munis, function(geom) st_geometry_type(geom) == "GEOMETRYCOLLECTION")
+
+# Filter out rows with GEOMETRYCOLLECTION geometries
+final_muni_geom_filtered <- final_muni_geom_valid[!is_collection, ]
+
+# Save the filtered dataset
+saveRDS(final_muni_geom_filtered, "final_muni_geom_filtered.rds")
+
+getwd()
 ```
+
+
+```{r}
+class(final_muni_geom_filtered$cust_revenue_cum)
+any(is.na(final_muni_geom_filtered$cust_revenue_cum))
+
+```
+
+
+
 
 
 

@@ -1,0 +1,135 @@
+```{r}
+
+setwd("C://Users//willf//OneDrive//Documents//NYDSA//R//Olist//Data")
+
+# Looking at various dataframe sizes to understand what I can use
+
+consolidated_orders_size <- object.size(consolidated_orders)/(1024^2)
+consolidated_orders_size
+
+
+
+```
+
+```{r}
+# Create Olist Rev from Sellers DF
+
+# First merge orders and order_items
+
+library(dplyr)
+library(tidyr)
+
+orders_items = merge(orders, order_items, by = "order_id")
+
+# Select necessary columns
+rev_from_sellers <- orders_items %>%
+  select(order_id, order_status, order_purchase_timestamp, order_item_id, product_id, seller_id, price, freight_value)
+
+
+# Create new vs old sellers
+rev_from_sellers <- rev_from_sellers %>%
+  mutate(order_purchase_timestamp = as.POSIXct(order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S")) %>%
+  group_by(seller_id) %>%
+  arrange(order_purchase_timestamp) %>%
+  mutate(
+    seller_status = ifelse(order_purchase_timestamp == min(order_purchase_timestamp), "new", "old")
+  ) %>%
+  ungroup()
+
+# Fix odd seller id with seller status marked NA for some reason
+rev_from_sellers <- rev_from_sellers %>%
+  mutate(seller_status = case_when(is.na(seller_status) & seller_id == "e9779976487b77c6d4ac45f75ec7afe9" & order_purchase_timestamp == "2017-03-01 09:25:31" ~ "new", 
+                                   is.na(seller_status) & seller_id == "e9779976487b77c6d4ac45f75ec7afe9" & order_purchase_timestamp > "2017-03-01 09:25:31" ~ "old",
+                                   TRUE ~ seller_status))
+
+# Check for unusual or unique values in the seller_id column
+unique_seller_ids <- unique(rev_from_sellers$seller_id)
+
+na_seller_status <- sum(is.na(rev_from_sellers$seller_status))
+
+cat("Unique seller_ids:", length(unique_seller_ids), "\n")
+cat("NAs in seller_status:", na_seller_status, "\n")
+
+# Remove the one remaining row where seller status is NA
+rev_from_sellers <- rev_from_sellers %>%
+  filter(!is.na(seller_status))
+
+```
+
+```{r}
+# Calculate active SaaS subcribers
+
+library(lubridate)
+
+# Set subscription start and end dates at first and last day of the months of first and last sales
+
+subscription_info <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  summarise(subscription_start = min(order_purchase_timestamp),
+            subscription_end = max(order_purchase_timestamp)) %>%
+  mutate(subscription_start = floor_date(subscription_start, "month"),
+         subscription_end = ceiling_date(subscription_end, "month") - days(1)) %>%
+  ungroup()
+
+# Join subscription info back to rev_from_sellers
+rev_from_sellers <- rev_from_sellers %>%
+  left_join(subscription_info, by = "seller_id")
+
+```
+
+```{r}
+# Calculate daily subscription revenue and aggregate to daily DF
+
+# Convert subscription start and end to dates
+rev_from_sellers <- rev_from_sellers %>%
+  mutate(subscription_start = as.Date(subscription_start),
+         subscription_end = as.Date(subscription_end))
+
+# Create daily DF for seller subscription
+seller_daily_sub <- rev_from_sellers %>%
+  rowwise() %>%
+  mutate(days = list(seq.Date(subscription_start, subscription_end, by = "day"))) %>%
+  unnest(days) %>%
+  mutate(daily_fee = 99 / days_in_month(days)) %>%
+  select(seller_id, days, daily_fee)
+
+# Make sellers subscription DF daily
+seller_daily_sub <- seller_daily
+
+# Check that there is only one order_purchase_timestamp per order_id
+order_timestamp_check <- rev_from_sellers %>%
+  group_by(order_id) %>%
+  summarize(n_timestamps = n_distinct(order_purchase_timestamp))%>%
+  filter(n_timestamps > 1)
+
+# Since only one timestamp per order we can aggregate main DF by order_id
+rev_from_sellers_byorder_delivered <- rev_from_sellers %>%
+  filter(order_status == "delivered") %>%
+  group_by(order_id) %>%
+  summarise(
+    total_sales = sum(price),
+    total_freight_value = sum(freight_value),
+    total_units_ordered = n_distinct(order_item_id),
+    order_purchase_timestamp = first(order_purchase_timestamp),
+    unique_sellers = n_distinct(seller_id),
+    unique_products = n_distinct(product_id)) %>%
+  mutate(olist_rev_share = total_sales * 0.2)
+
+# Make aggregated DF daily
+rev_from_sellers_daily <- rev_from_sellers_byorder_delivered %>%
+  group_by(order_purchase_timestamp = floor_date(order_purchase_timestamp, "day")) %>%
+  summarise(
+    total_sales = sum(total_sales),
+    total_freight_value = sum(total_freight_value),
+    total_units_ordered = sum(total_units_ordered),
+    unique_sellers = sum(unique_sellers),
+    unique_products= sum(unique_products),
+    olist_rev_share = sum(olist_rev_share)
+  )
+
+# Merge subscription DF with main daily DF
+rev_from_sellers_daily <- rev_from_sellers_daily %>%
+  left_join(seller_daily_sub, by = c("order_purchase_timestamp" = "days"))
+
+```
+

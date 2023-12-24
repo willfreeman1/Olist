@@ -1,0 +1,142 @@
+```{r}
+# Tests for Olist dashboard - revenue from sellers
+getwd()
+```
+
+
+```{r}
+
+#Check time series
+library(ggplot2)
+
+# Make timestamp a date
+rev_from_sellers_daily$order_purchase_timestamp = as.Date(rev_from_sellers_daily$order_purchase_timestamp)
+
+start_date = as.Date("2017-01-01")
+end_date = as.Date("2018-08-15")
+
+# Create date limited time series to cut off noise
+rev_from_sellers_daily_timecut <- rev_from_sellers_daily %>%
+  filter(order_purchase_timestamp >= start_date & order_purchase_timestamp <= end_date)
+
+
+# Plot Revenue
+ggplot(rev_from_sellers_daily_timecut, aes(x = order_purchase_timestamp, y = olist_total_rev)) +
+  geom_line() +
+  theme_minimal() +
+  labs(title = "Daily Olist Revenue",
+       x = "Order Date",
+       y = "Revenue (BRL)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ggsave("olist_revenue_plot.png", plot = p, width = 10, height = 6, dpi = 300)
+
+
+
+```
+
+```{r}
+# Create Revenue Forecast with Prophet
+library(prophet)
+library(plotly)
+library(zoo)
+
+# Prep DF
+df_prophet <- rev_from_sellers_daily_timecut %>%
+  select(ds = order_purchase_timestamp, y = olist_total_rev)
+
+# Fit prophet model
+ m <- prophet(df_prophet)
+ 
+# Make future 30 day DF
+ future <- make_future_dataframe(m, periods = 30)
+ 
+ # Forecast and save forecast
+ forecast <- predict(m, future)
+ saveRDS(forecast, "forecast.rds")
+ 
+ # Separate historical data and forecast
+ cutoff_date = as.Date("2018-08-15")
+ 
+ historical_data <- df_prophet %>% filter(ds <= cutoff_date)
+ forecast_data <- forecast %>% filter(ds >= cutoff_date)
+
+saveRDS(historical_data, "..//Olist_1//historical_data.rds")
+saveRDS(forecast_data, "..//Olist_1//forecast_data.rds")
+ 
+ historical_data$ds <- as.Date(historical_data$ds)
+ forecast_data$ds <- as.Date(forecast_data$ds)
+ 
+ # Create moving avg for historical data
+ window_size <- 5
+ 
+ historical_data <- historical_data %>%
+   arrange(ds) %>%
+   mutate(rolling_mean = rollmean(y, window_size, align = "right", fill = NA))
+ 
+# Create  base plot with historical data and add forecast line + uncertainty interval
+p <- ggplot() +
+  # geom_line(data = historical_data, aes(x = ds, y = y), color = "blue") +
+  geom_line(data = historical_data, aes(x = ds, y = rolling_mean), color = "green", na.rm = TRUE) +
+  geom_line(data = forecast_data, aes(x = ds, y = yhat), color = "red") +
+  geom_ribbon(data = forecast_data, aes(x = ds, ymin = yhat_lower, ymax = yhat_upper), alpha = 0.2, fill = "orange") +
+  labs(title = paste("Olist Revenue Forecast with", window_size, "Day Moving Average"),
+       x = "Date", y = "Revenue (BRL)") +
+  ylim(0, 20000)
+
+p
+
+
+```
+
+```{r}
+# SaaS rev vs sales percentage
+
+# Create moving avg for both revenue sources
+window_size = 5
+
+rev_split <- rev_from_sellers_daily_timecut %>%
+  arrange(order_purchase_timestamp) %>%
+  mutate(olist_rev_share_ma = rollmean(olist_rev_share, window_size, align = "right", fill = NA),
+         daily_fee_ma = rollmean(daily_fee, window_size, align = "right", fill = NA))
+
+saveRDS(rev_split,"..//Olist_1//rev_split.rds")
+
+# Plot stacked area chart
+p <- ggplot(rev_split, aes(x = order_purchase_timestamp)) +
+  geom_area(aes(y = olist_rev_share_ma, fill = "20% Revenue Share"), position = "stack") +
+  geom_area(aes(y = daily_fee_ma, fill = "Subscription Revenue"), position = "stack") +
+  scale_fill_manual(values = c("20% Revenue Share" = "blue", "Subscription Revenue" = "green")) +
+  labs(title = "5-Day Moving Average of Olist Revenue Streams",
+       x = "Date", y = "Revenue (BRL)", fill = "Revenue Type") +
+  ylim(0, 15000)
+
+p
+
+```
+
+```{r}
+# Show number of sellers subscribed
+library(ggplot2)
+
+start_date <- as.Date("2017-01-01")
+end_date <- as.Date("2018-07-31")
+
+# Filter the dataframe
+monthly_seller_changes_filtered <- monthly_seller_changes %>%
+  filter(month >= start_date & month <= end_date)
+
+ggplot(monthly_seller_changes_filtered, aes(x = month)) +
+  geom_bar(aes(y = new_sellers, fill = "New Sellers"), stat = "identity") +
+  geom_bar(aes(y = -lost_sellers, fill = "Old Sellers"), stat = "identity") +
+  geom_line(aes(y = net_change, group = 1), color = "blue") +
+  scale_fill_manual(values = c("New Sellers" = "green", "Old Sellers" = "red")) +
+  labs(title = "Monthly Seller Acquisition vs Churn (Jan 2017 - Jul 2018)",
+       x = "Month",
+       y = "Number of Sellers",
+       fill = "Seller Type") +
+  theme_minimal() +
+  scale_y_continuous(labels = abs, sec.axis = sec_axis(~ ., name = "Net Change"))
+
+```
+

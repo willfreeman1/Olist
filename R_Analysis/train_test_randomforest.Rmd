@@ -1,0 +1,153 @@
+```{r}
+library(dplyr)
+
+# First remove total_spend, num_orders and aov from DF as they are too similar to outcome variable (RFM score)
+
+final_analysis_df = final_analysis_df %>%
+  select(-total_spend, -num_orders, -aov)
+
+final_analysis_df = final_analysis_df %>%
+  rename(mean_income_pc = 'mean(income_pc)')
+
+
+
+
+```
+
+```{r}
+# Standardize data for ML
+
+library(caret)
+
+numerical_cols = c("avg_installments", "reviews_per_customer", "avg_review_score_per_customer", "mean_income_pc" )
+
+preProcValues = preProcess(final_analysis_df[, numerical_cols], method = c("center", "scale"))
+
+final_analysis_df[, numerical_cols] = predict(preProcValues, final_analysis_df[, numerical_cols])
+```
+
+```{r}
+
+```
+
+
+```{r}
+#Starting with dense matrix with all features and splitting for test and train
+
+set.seed(123)
+
+total_rows = nrow(final_analysis_df)
+train_indices = sample(1:total_rows, size = 0.7 * total_rows)
+test_indices = setdiff(1:total_rows, train_indices)
+
+train_data = final_analysis_df[train_indices, ]
+test_data = final_analysis_df[test_indices, ]
+
+```
+
+```{r}
+install.packages("fastDummies")
+```
+
+```{r}
+library(fastDummies)
+
+train_data = dummy_cols(train_data, select_columns = c("customer_zip_code_prefix", "customer_city", "customer_state", "most_common_weekday", "most_common_month", "urban_rural"))
+
+test_data = dummy_cols(test_data, select_columns = c("customer_zip_code_prefix", "customer_city", "customer_state", "most_common_weekday", "most_common_month", "urban_rural"))
+
+```
+
+```{r}
+# Remove cols that were one-hot encoded
+
+train_data = train_data %>% select(-c("customer_zip_code_prefix", "customer_city", "customer_state", "most_common_weekday", "most_common_month", "urban_rural"))
+
+test_data = test_data %>% select(-c("customer_zip_code_prefix", "customer_city", "customer_state", "most_common_weekday", "most_common_month", "urban_rural"))
+
+```
+
+```{r}
+# Convert data frames to sparse matrices and remove unnecessary columns
+library(Matrix)
+
+train_features_sparse = as(as.matrix(train_data[, !colnames(train_data) %in% c("customer_unique_id")]), "sparseMatrix" )
+
+test_features_sparse = as(as.matrix(test_data[, !colnames(test_data) %in% c("customer_unique_id")]), "sparseMatrix" )
+
+# Make response variables
+
+train_response = train_data$RFM_avg
+test_response = test_data$RFM_avg
+
+```
+
+```{r}
+saveRDS(train_data, "train_data.rds")
+saveRDS(train_data_sparse, "train_data_sparse.rds")
+saveRDS(test_data, "test_data.rds")
+saveRDS(test_data_sparse, "test_data_sparse.rds")
+```
+
+
+```{r}
+# Train with xgboost
+library(xgboost)
+
+dtrain = xgb.DMatrix(data = train_data_sparse, label = train_response)
+params = list(objective = "reg:squarederror")
+xgb_model = xgb.train(params, dtrain, nrounds = 500)
+```
+
+```{r}
+# Test the model from xgboost training
+
+dtest = xgb.DMatrix(data = test_data_sparse, label = test_response)
+predictions = predict(xgb_model, dtest)
+
+```
+
+```{r}
+# Get prediction metrics from xgboost test
+mse = mean((test_response - predictions) ^ 2)
+rmse = sqrt(mse)
+r_squared = 1-(sum((test_response - predictions)^2) / sum((test_response-mean(test_response)) ^2))
+
+print(mse)
+print(rmse)
+print(r_squared)
+
+```
+
+```{r}
+# Hyperparameter tuning and testing
+
+# define ranges of learning rates and n estimators to test
+learning_rates = c(0.01, 0.05, 0.1, 0.2)
+n_estimators = c(100, 250, 500, 1000)
+
+# initialize variables
+best_rmse = Inf
+best_eta = NA
+best_n_estimators = NA
+
+for (eta in learning_rates) {
+  for(n in n_estimators) {
+    model = xgboost(data = train_data_sparse, label = train_response,
+                    eta = eta, nrounds = n, objective = "reg:squarederror")
+    
+    predictions = predict(model, test_data_sparse)
+    rmse = sqrt(mean((test_response - predictions)^2))
+    
+    if (rmse < best_rmse) {
+      best_rmse = rmse
+      best_eta = eta
+      best_n_estimators = n
+    }
+  }
+}
+
+print(paste("Best RMSE:", best_rmse, "with learning rate", best_eta, "and n_estimators:", best_n_estimators))
+
+```
+
