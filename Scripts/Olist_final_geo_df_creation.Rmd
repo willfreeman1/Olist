@@ -200,6 +200,11 @@ library(ggplot2)
 # download data
 tracts_basico <- read_tracts(year = 2010, dataset = "Basico", showProgress = FALSE)
 tracts_income <- read_tracts(year = 2010, dataset = "DomicilioRenda", showProgress = FALSE)
+pop <- read_population(year = 2010,
+                       columns = c('abbrev_state', 'V0606', 'V0010', 'V6400'),
+                       add_labels = 'pt',
+                       as_data_frame = TRUE,
+                       showProgress = FALSE)
 
 # select columns
 tracts_basico <- tracts_basico |> select('code_tract','V002')
