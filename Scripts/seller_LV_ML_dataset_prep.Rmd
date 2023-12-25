@@ -1,0 +1,271 @@
+Creating Dataframe for Seller LTV ML Features
+
+```{r}
+setwd("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist/Data")
+# First load all the csv files in the dataset
+orders = read.csv("olist_orders_dataset.csv")
+customers = read.csv("olist_customers_dataset.csv")
+geolocation = read.csv("olist_geolocation_dataset.csv")
+order_items = read.csv('olist_order_items_dataset.csv')
+order_payments = read.csv("olist_order_payments_dataset.csv")
+order_reviews = read.csv("olist_order_reviews_dataset.csv")
+products = read.csv("olist_products_dataset.csv")
+sellers = read.csv("olist_sellers_dataset.csv")
+cat_name_translation = read.csv("product_category_name_translation.csv")
+closed_deals = read.csv("olist_closed_deals_dataset.csv")
+mql_df = read.csv("olist_marketing_qualified_leads_dataset.csv")
+```
+
+```{r}
+# Create orders + order_items DF
+orders_items = merge(orders, order_items, by = "order_id")
+
+# Remove unwanted order statuses
+unique(orders_items$order_status)
+
+orders_items <- orders_items %>%
+  filter(!order_status == "unavailable")
+
+# Review undelivered orders
+undelivered_orders <- orders_items %>%
+  filter(!order_status == "delivered")
+
+```
+
+```{r}
+# Merge Sellers DF with Orders Items
+library(dplyr)
+orders_items_sellers <- orders_items %>%
+  left_join(sellers,by = "seller_id")
+```
+
+```{r}
+# Add geobr and censobr data (population, income, income per capita)
+# Cut seller_tracts_incomepc down to what you need to merge
+
+seller_censo_data <- seller_tracts_incomepc %>%
+  select(seller_id, seller_zip_code_prefix, sell_geo_city, sell_geo_state, zone, code_tract, code_muni, name_muni, code_state, V002, V003, income_pc)
+
+seller_censo_data <- seller_censo_data %>%
+  group_by(seller_id) %>%
+  summarise(
+    seller_zip_code_prefix = first(seller_zip_code_prefix),
+    sell_geo_city = first(sell_geo_city),
+    sell_geo_state = first(sell_geo_state),
+    zone = first(zone),
+    code_tract = first(code_tract),
+    code_muni = first(code_muni),
+    name_muni = first(name_muni),
+    code_state = first(code_state),
+    income = first(V003),
+    population = first(V002),
+    income_pc = first(income_pc))
+
+# Remove seller_zip_code_prefix to replace from censo data
+orders_items_sellers <- orders_items_sellers %>%
+  select(-seller_zip_code_prefix)
+
+# Join 
+orders_items_sellers_censo = orders_items_sellers %>%
+  left_join(seller_censo_data, by = "seller_id")
+
+```
+
+```{r}
+# Join product, catnames, & reviews DFs to agg DF
+
+orders_items_sellers_censo <- orders_items_sellers_censo %>%
+  left_join(products, by = "product_id")
+
+ord_sell_prod_review_censo <- orders_items_sellers_censo %>%
+  left_join(order_reviews, by = "order_id")
+
+ord_sell_prod_review_censo <- ord_sell_prod_review_censo %>%
+  left_join(cat_name_translation, by = "product_category_name")
+
+na_counts <- sapply(ord_sell_prod_review_censo, function(x) sum(is.na(x)))
+na_counts
+
+```
+```{r}
+# Remove unneeded columns
+ord_sell_prod_review_censo <- ord_sell_prod_review_censo %>%
+  select(-review_comment_message, -review_comment_title, -review_answer_timestamp)
+
+```
+
+
+```{r}
+# Remove rows with NAs
+
+no_na_rows <- apply(ord_sell_prod_pay_review_censo, 1, function(x) all(!is.na(x)))
+
+ord_sell_prod_review_censo_clean <- ord_sell_prod_review_censo[no_na_rows, ]
+
+saveRDS(ord_sell_prod_review_censo_clean, "..//Data//ord_sell_prod_review_censo_clean.rds")
+
+```
+
+```{r}
+# Plot a Histogram of Number of Orders Per Seller as Share of Total Sellers - Checking sample sizes for LTV calc
+library(ggplot2)
+
+seller_order_counts <- table(ord_sell_prod_review_censo_clean$seller_id)
+
+# Create buckets
+bucket_size <- 2
+max_orders <- 300
+bucketed_counts <- cut(seller_order_counts, breaks = seq(0, max_orders + bucket_size, by = bucket_size), right = FALSE, include.lowest = TRUE)
+
+# Calc share of total sellers for each bucket
+bucketed_counts_table <- table(bucketed_counts)
+total_sellers <- length(seller_order_counts)
+bucketed_counts_share <- bucketed_counts_table / total_sellers
+
+# Create DF for plotting and plot
+plot_data <- data.frame(OrderBucket = names(bucketed_counts_share), Share = bucketed_counts_share * 100)
+plot_data$OrderBucket <- factor(plot_data$OrderBucket, levels = names(bucketed_counts_share))
+
+
+ggplot(plot_data, aes(x = OrderBucket, y = Share.Freq)) +
+  geom_bar(stat = "identity", fill = "blue", color = "black") +
+  labs(title = "Number of Orders per Seller (Share of Total Sellers)",
+       x = "Number of Orders",
+       y = "Share of Sellers") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Start Creation of Seller Features DF
+
+# First check that seller location values are all the same per seller
+seller_location_changes <- ord_sell_prod_review_censo_clean %>%
+  group_by(seller_id) %>%
+  summarise(
+    unique_zip = n_distinct(seller_zip_code_prefix),
+    unique_city = n_distinct(seller_city),
+    unique_state = n_distinct(seller_state),
+    unique_zip_pop = n_distinct(population),
+    unique_zip_income = n_distinct(income),
+    unique_income_pc = n_distinct(income_pc)
+  ) %>%
+  filter(unique_zip > 1 | unique_city > 1 | unique_state > 1| unique_zip_pop > 1| unique_zip_income > 1| unique_income_pc > 1)
+
+# Ensure datetimes are properly formatted
+ord_sell_prod_review_censo_clean <- ord_sell_prod_review_censo_clean %>%
+  mutate(order_purchase_timestamp = as.POSIXct(order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S"),
+         order_delivered_customer_date = as.POSIXct(order_delivered_customer_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_estimated_delivery_date = as.POSIXct(order_estimated_delivery_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_delivered_carrier_date = as.POSIXct(order_delivered_carrier_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_approved_at = as.POSIXct(order_approved_at, format = "%Y-%m-%d %H:%M:%S"),
+         shipping_limit_date = as.POSIXct(shipping_limit_date, format = "%Y-%m-%d %H:%M:%S")
+  )
+
+# Resave DF
+saveRDS(ord_sell_prod_review_censo_clean, "..//Data//ord_sell_prod_review_censo_clean.rds")
+ 
+```
+
+
+
+```{r}
+# Create prodcat_rev_share dataframe
+library(dplyr)
+library(tidyr)
+
+
+prodcat_rev_share <- ord_sell_prod_review_censo_clean %>%
+  group_by(seller_id, product_category_name_english) %>%
+  summarise(revenue = sum(price, na.rm = TRUE)) %>%
+  filter(!is.na(product_category_name_english)) %>%
+  arrange(seller_id, desc(revenue)) %>%
+  mutate(rank = row_number()) %>%
+  filter(rank <= 3) %>%
+  select(seller_id, product_category_name_english, rank) %>%  # Select only necessary columns
+  pivot_wider(names_from = rank, values_from = product_category_name_english,
+              names_prefix = "category_",
+              values_fill = list(product_category_name_english = NA))
+
+```
+
+```{r}
+# Determine cutoff date for unusual order status after which these are just normal order processing 
+library(lubridate)
+library(ggplot2)
+
+ord_sell_prod_review_censo_clean$week <- floor_date(ord_sell_prod_review_censo_clean$order_purchase_timestamp, "week")
+
+# Calc share of order statuses per week
+status_weekly_share <- ord_sell_prod_review_censo_clean %>%
+  group_by(week, order_status) %>%
+  summarise(count = n()) %>%
+  mutate(total = sum(count, na.rm = TRUE)) %>%
+  mutate(share = count / total * 100)
+
+# Plot order status share over time
+ggplot(status_weekly_share, aes(x = week, y = share, color = order_status)) +
+  geom_line() +
+  labs(title = "Weekly Share of Order Statuses",
+       x = "Week",
+       y = "Share")
+
+# From below it looks like we should limit this calc from after Jan 2017 and before Sep 2018
+```
+
+```{r}
+# Create seller features dataframe
+
+seller_features_df <- ord_sell_prod_review_censo_clean %>%
+  group_by(seller_id) %>%
+  summarise(
+    seller_zip = first(seller_zip_code_prefix),
+    seller_city = first(seller_city),
+    seller_state = first(seller_state),
+    seller_zip_population = first(population),
+    seller_zip_income = first(income),
+    seller_zip_incomepc = first(income_pc),
+    num_unique_products = n_distinct(product_id),
+    avg_price = mean(price),
+    avg_freight = mean(freight_value),
+    avg_ship_share = mean(freight_value / price) * 100,
+    avg_expected_ship_time = mean(as.numeric(floor_date(order_estimated_delivery_date, "day") - floor_date(order_purchase_timestamp, "day"))),
+    avg_ship_time = mean(as.numeric(floor_date(order_delivered_customer_date, "day") - floor_date(order_purchase_timestamp, "day"))),
+    total_orders = n_distinct(order_id),
+    avg_name_length = mean(product_name_lenght),
+    avg_desc_length = mean(product_description_lenght),
+    avg_photos = mean(product_photos_qty),
+    avg_prod_weight_g = mean(product_weight_g),
+    avg_prod_size_volume_cm3 = mean(product_length_cm * product_width_cm * product_height_cm)
+    )
+
+# Calculate order_status features
+seller_order_status_features <- ord_sell_prod_review_censo_clean %>%
+  group_by(seller_id) %>%
+  summarise(
+    total_orders = n(),
+    delivered_count = sum(order_status == "delivered"),
+    cancelled_count = sum(order_status == "cancelled"),
+    unusual_status_count = sum(order_status %in% c("shipped", "invoiced", "processing", "approved")),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    order_delivered_share = delivered_count / total_orders * 100,
+    order_cancelled_share = cancelled_count / total_orders * 100,
+    unusual_order_status_share = unusual_status_count / total_orders * 100
+  )
+
+seller_features_df <- seller_features_df %>%
+  left_join(seller_order_status_features, by = "seller_id")
+
+# Join prodcat_rev_share with seller_features_df to add top product categories
+seller_features_df <- seller_features_df %>%
+  left_join(prodcat_rev_share, by = "seller_id")
+```
+
+```{r}
+# Save seller features df
+saveRDS(seller_features_df, "..//Data//seller_features_df.rds")
+
+```
+
