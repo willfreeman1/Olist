@@ -17,6 +17,99 @@ mql_df = read.csv("olist_marketing_qualified_leads_dataset.csv")
 ```
 
 ```{r}
+# STANDARDIZE CITY NAMES
+
+library(dplyr)
+library(stringr)
+library(purrr)
+
+# Function to standardize city names
+standardize_city_names <- function(city_name) {
+  if (is.na(city_name)) {
+    return(city_name)
+  }
+
+  # Standardizing hyphenation and spacing
+  standardized_name <- str_replace_all(city_name, "[ /]", "-")
+  standardized_name <- tolower(standardized_name)
+  
+  # Correcting common misspellings and variations
+  corrections <- c(
+    "riberao-preto" = "ribeirao-preto",
+    "piumhii" = "piumhi",
+    "brasilia-df" = "brasilia",
+    "brasilia-sp" = "brasilia",
+    "mogi-guacu" = "mogi-guacu",
+    "balenario-camboriu" = "balneario-camboriu",
+    "balneario-picarras" = "balneario-picarras",
+    "barbacena-minas-gerais" = "barbacena",
+    "cachoeiras-de-macacu" = "cachoeiras-de-macacu",
+    "cariacica-es" = "cariacica",
+    "carapicuiba-sao-paulo" = "carapicuiba",
+    "lago-sul" = "brasilia",
+    "bonfim-paulista" = "ribeirao-preto",
+    "ribeirao-preto-sao-paulo" = "ribeirao-preto",
+    "ribeirao-pretp" = "ribeirao-preto",
+    "riberao-preto" = "ribeirao-preto",
+    "robeirao-preto" = "ribeirao-preto",
+    "s-jose-do-rio-preto" = "sao-jose-do-rio-preto",
+    "santo-andre-sao-paulo" = "santo-andre",
+    "sao-jose-do-rio-pret" = "sao-jose-do-rio-preto",
+    "sao-paulo-sp" = "sao-paulo",
+    "sao-paulop" = "sao-paulo",
+    "sp" = "sao-paulo",
+    "sao-paluo" = "sao-paulo",
+    "sao-caetano-do-sul" = "sao-caetano-do-sul",
+    "cascavael" = "cascavel",
+    "ferraz-de-vasconcelos" = "ferraz-de-vasconcelos",
+    "floranopolis" = "florianopolis",
+    "garulhos" = "guarulhos",
+    "itapaje" = "itapage",
+    "portoferreira" = "porto-ferreira",
+    "rio-de-janeiro-rio-de-janeiro" = "rio-de-janeiro",
+    "rio-de-janeiro-rio-de-janeiro-brasil" = "rio-de-janeiro",
+    "sao-bernardo-do-capo" = "sao-bernardo-do-campo",
+    "sao-jorge-doeste" = "sao-jorge-d'oeste",
+    "sao-jorge-do-oeste" = "sao-jorge-d'oeste",
+    "sao-jose-dos-pinhas" = "sao-jose-dos-pinhais",
+    "sao-luis-do-paraitinga" = "sao-luiz-do-paraitinga",
+    "sao-miguel-do-oeste" = "sao-miguel-d'oeste",
+    "tabao-da-serra" = "taboao-da-serra",
+    "scao-jose-do-rio-pardo" = "sao-jose-do-rio-pardo"
+  )
+
+# Apply corrections if the name is in the list
+  if (standardized_name %in% names(corrections)) {
+    return(corrections[[standardized_name]])
+  } else {
+    return(standardized_name)
+  }
+}
+
+# Apply the function to the dataframe using map instead of sapply
+orders_items_sellers_censo_corrected <- orders_items_sellers_censo %>%
+  mutate(
+    seller_city = map_chr(seller_city, standardize_city_names),
+    sell_geo_city = map_chr(sell_geo_city, standardize_city_names)
+  )
+
+# Apply the function to each column
+na_and_empty_geo_counts <- sapply(orders_items_sellers_censo_corrected, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+
+print(dim(orders_items_sellers_censo_corrected))
+
+write.csv(orders_items_sellers_censo_corrected, "..//Data//orders_items_sellers_censo_corrected_names.csv")
+
+```
+
+
+```{r}
+# CREATE & CLEAN ORDERS_ITEMS DF
+
 # Create orders + order_items DF
 orders_items = merge(orders, order_items, by = "order_id")
 
@@ -30,28 +123,372 @@ orders_items <- orders_items %>%
 undelivered_orders <- orders_items %>%
   filter(!order_status == "delivered")
 
+# Check NAs
+na_blanks_counts <- sapply(orders_items, function(x) sum(is.na(x) | x == ""))
+print(na_blanks_counts)
+
+print(dim(orders_items))
 ```
 
 ```{r}
-# Merge Sellers DF with Orders Items
+# MERGE SELLERS DF WITH ORDERS_ITEMS
+# First correct missing leading zeroes seller zip code prefix
+sellers$seller_zip_code_prefix <- sprintf("%05d", as.numeric(sellers$seller_zip_code_prefix))
+
+# Check for NAs in sellers
+na_blanks_counts <- sapply(sellers, function(x) sum(is.na(x) | x == ""))
+print(na_blanks_counts)
+
+#Join
 library(dplyr)
 orders_items_sellers <- orders_items %>%
   left_join(sellers,by = "seller_id")
+
+# Check NAs
+na_blanks_counts <- sapply(orders_items_sellers, function(x) sum(is.na(x) | x == ""))
+print(na_blanks_counts)
+
+print(dim(orders_items_sellers))
+
 ```
 
 ```{r}
-# Add geobr and censobr data (population, income, income per capita)
-# Cut seller_tracts_incomepc down to what you need to merge
+# CORRECT SELLER CITY NAMES IN ORDERS_ITEMS_SELLERS
+library(stringr)
+library(purrr)
+
+# Function to standardize city names
+standardize_city_names <- function(city_name) {
+  if (is.na(city_name)) {
+    return(city_name)
+  }
+
+  # Standardizing hyphenation and spacing
+  standardized_name <- str_replace_all(city_name, "[ /]", "-")
+  standardized_name <- tolower(standardized_name)
+  
+  # Correcting common misspellings and variations
+  corrections <- c(
+    "riberao-preto" = "ribeirao-preto",
+    "piumhii" = "piumhi",
+    "brasilia-df" = "brasilia",
+    "brasilia-sp" = "brasilia",
+    "mogi-guacu" = "mogi-guacu",
+    "balenario-camboriu" = "balneario-camboriu",
+    "balneario-picarras" = "balneario-picarras",
+    "barbacena-minas-gerais" = "barbacena",
+    "cachoeiras-de-macacu" = "cachoeiras-de-macacu",
+    "cariacica-es" = "cariacica",
+    "carapicuiba-sao-paulo" = "carapicuiba",
+    "lago-sul" = "brasilia",
+    "bonfim-paulista" = "ribeirao-preto",
+    "ribeirao-preto-sao-paulo" = "ribeirao-preto",
+    "ribeirao-pretp" = "ribeirao-preto",
+    "riberao-preto" = "ribeirao-preto",
+    "robeirao-preto" = "ribeirao-preto",
+    "s-jose-do-rio-preto" = "sao-jose-do-rio-preto",
+    "santo-andre-sao-paulo" = "santo-andre",
+    "sao-jose-do-rio-pret" = "sao-jose-do-rio-preto",
+    "sao-paulo-sp" = "sao-paulo",
+    "sao-paulop" = "sao-paulo",
+    "sp" = "sao-paulo",
+    "sao-paluo" = "sao-paulo",
+    "sao-caetano-do-sul" = "sao-caetano-do-sul",
+    "cascavael" = "cascavel",
+    "ferraz-de-vasconcelos" = "ferraz-de-vasconcelos",
+    "floranopolis" = "florianopolis",
+    "garulhos" = "guarulhos",
+    "itapaje" = "itapage",
+    "portoferreira" = "porto-ferreira",
+    "rio-de-janeiro-rio-de-janeiro" = "rio-de-janeiro",
+    "rio-de-janeiro-rio-de-janeiro-brasil" = "rio-de-janeiro",
+    "sao-bernardo-do-capo" = "sao-bernardo-do-campo",
+    "sao-jorge-doeste" = "sao-jorge-d'oeste",
+    "sao-jorge-do-oeste" = "sao-jorge-d'oeste",
+    "sao-jose-dos-pinhas" = "sao-jose-dos-pinhais",
+    "sao-luis-do-paraitinga" = "sao-luiz-do-paraitinga",
+    "sao-miguel-do-oeste" = "sao-miguel-d'oeste",
+    "tabao-da-serra" = "taboao-da-serra",
+    "scao-jose-do-rio-pardo" = "sao-jose-do-rio-pardo"
+  )
+
+# Apply corrections if the name is in the list
+  if (standardized_name %in% names(corrections)) {
+    return(corrections[[standardized_name]])
+  } else {
+    return(standardized_name)
+  }
+}
+
+# Apply the function to the dataframe using map instead of sapply
+orders_items_sellers_corrected <- orders_items_sellers %>%
+  mutate(
+    seller_city = map_chr(seller_city, standardize_city_names),
+  )
+
+# Apply the function to each column
+na_and_empty_geo_counts <- sapply(orders_items_sellers_corrected, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+```
+
+
+```{r}
+# CLEAN & JOIN GEOLOCATION DF
+# First correct missing leading zeroes seller zip code prefix
+geolocation$geolocation_zip_code_prefix <- sprintf("%05d", as.numeric(geolocation$geolocation_zip_code_prefix))
+
+# Correct any common errors in geolocation city names
+geolocation_corrected <- geolocation %>%
+  mutate(
+    geolocation_city = map_chr(geolocation_city, standardize_city_names),
+  )
+
+# Deduplicate full row dupes in geolocation
+geolocation_corrected_unique <- geolocation_corrected %>%
+  distinct()
+
+# average lat and lng per zip
+geolocation_corrected_unique <- geolocation_corrected_unique %>%
+  group_by(geolocation_zip_code_prefix) %>%
+  summarize(
+    latitude = mean(geolocation_lat),
+    longitude = mean(geolocation_lng),
+    geolocation_city = first(geolocation_city),
+    geolocation_state = first(geolocation_state)
+  )
+
+# Join geolocation_corrected to orders_items_sellers_corrected
+orders_items_sellers_geo <- orders_items_sellers_corrected %>%
+  left_join(geolocation_corrected_unique, by = c("seller_zip_code_prefix" = "geolocation_zip_code_prefix"))
+
+# Check NAs
+na_and_empty_geo_counts <- sapply(orders_items_sellers_geo, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+```
+
+```{r}
+# CLEAN ORDERS_ITEMS_SELLERS_GEO
+
+# Create a logical vector for mismatches
+mismatches <- !(orders_items_sellers_geo$seller_city == orders_items_sellers_geo$geolocation_city)
+
+# Filter the dataframe to show only mismatches
+mismatched_rows <- orders_items_sellers_geo[mismatches, ]
+
+# After checking accuracy, the geolocation data is more accurate, so removing the orders data for city and state
+orders_items_sellers_geo <- orders_items_sellers_geo %>%
+  select(-seller_city, -seller_state)
+
+# FILL IN NAs IF THERE IS A MATCHING ZIP IN ANOTHER ROW
+
+# Step 1: Identify rows with missing data in orders_items_sellers_geo
+missing_data_rows <- is.na(orders_items_sellers_geo$latitude) & 
+                     is.na(orders_items_sellers_geo$longitude) & 
+                     is.na(orders_items_sellers_geo$geolocation_city) & 
+                     is.na(orders_items_sellers_geo$geolocation_state)
+
+# Step 2: Create a reference dataset from orders_items_sellers_geo
+reference_data <- orders_items_sellers_geo %>%
+  filter(!is.na(latitude) & !is.na(longitude) & 
+         !is.na(geolocation_city) & !is.na(geolocation_state)) %>%
+  distinct(seller_zip_code_prefix, .keep_all = TRUE)
+
+# Step 3: Match and replace missing data in orders_items_sellers_geo
+for (i in which(missing_data_rows)) {
+  zip_code <- orders_items_sellers_geo$seller_zip_code_prefix[i]
+  matched_row <- reference_data[reference_data$seller_zip_code_prefix == zip_code, ]
+  if (nrow(matched_row) > 0) {
+    orders_items_sellers_geo$latitude[i] <- matched_row$latitude[1]
+    orders_items_sellers_geo$longitude[i] <- matched_row$longitude[1]
+    orders_items_sellers_geo$geolocation_city[i] <- matched_row$geolocation_city[1]
+    orders_items_sellers_geo$geolocation_state[i] <- matched_row$geolocation_state[1]
+  }
+}
+
+# Now recheck empty and NAs
+# Check NAs
+na_and_empty_geo_counts <- sapply(orders_items_sellers_geo, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+write.csv(orders_items_sellers_geo, "..//Data//orders_items_sellers_geo.csv")
+
+# Fill in lat, lng, city, state from online data for zips with missing data
+# Define the values to fill in for each zip code
+zip_code_values <- list(
+  "02285" = list(lat = -23.426281868889383, lng = -46.56718353568133, city = "sao-paulo", state = "SP"),
+  "37705" = list(lat = -21.788270000000004, lng = -46.56252, city = "pocos-de-caldas", state = "MG"),
+  "71551" = list(lat = -15.664670000043225, lng = -47.80410000009443, city = "brasilia", state = "GO"),
+  "07412" = list(lat = -23.3902026, lng = -46.3369697, city = "aruja", state = "SP"),
+  "91901" = list(lat = -30.113587870631918, lng = -51.25502777146269, city = "porto-alegre", state = "RS"),
+  "72580" = list(lat = -16.04987410017847, lng = -47.98967930059379, city = "valparaiso-de-goias", state = "DF")
+)
+
+# Update the dataframe based on zip codes
+for (zip in names(zip_code_values)) {
+  matched_rows <- orders_items_sellers_geo$seller_zip_code_prefix == zip
+  orders_items_sellers_geo[matched_rows, "latitude"] <- zip_code_values[[zip]]$lat
+  orders_items_sellers_geo[matched_rows, "longitude"] <- zip_code_values[[zip]]$lng
+  orders_items_sellers_geo[matched_rows, "geolocation_city"] <- zip_code_values[[zip]]$city
+  orders_items_sellers_geo[matched_rows, "geolocation_state"] <- zip_code_values[[zip]]$state
+}
+
+# Check NAs
+na_and_empty_geo_counts <- sapply(orders_items_sellers_geo, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+# Remove remaining geolocation NAs
+orders_items_sellers_geo <- orders_items_sellers_geo %>%
+  filter(!is.na(latitude))
+
+
+```
+
+
+```{r}
+# CLEAN & JOIN CENSO DATA 
+
+# Cut seller_tracts_incomepc down to columns to merge
 
 seller_censo_data <- seller_tracts_incomepc %>%
-  select(seller_id, seller_zip_code_prefix, sell_geo_city, sell_geo_state, zone, code_tract, code_muni, name_muni, code_state, V002, V003, income_pc)
+  select(seller_id, seller_zip_code_prefix, zone, code_tract, code_muni, name_muni, code_state, V002, V003, income_pc)
 
-seller_censo_data <- seller_censo_data %>%
+# Clean muni name errors
+seller_censo_corrected <- seller_censo_data %>%
+  mutate(
+    name_muni = map_chr(name_muni, standardize_city_names),
+  )
+
+# Remove accents from muni names
+seller_censo_corrected$name_muni <- iconv(seller_censo_corrected$name_muni, from = "UTF-8", to = "ASCII//TRANSLIT")
+
+# Try to fill blank or NAs in seller_censo_data
+columns_to_fill <- setdiff(names(seller_censo_corrected), c("seller_zip_code_prefix", "seller_id"))
+
+  # Create a lookup table for each zip code and each column
+lookup_table <- seller_censo_corrected %>%
+  group_by(seller_zip_code_prefix) %>%
+  summarise(across(all_of(columns_to_fill), ~ first(na.omit(.))))
+
+  # Fill in missing data
+for (column in columns_to_fill) {
+  for (i in which(is.na(seller_censo_corrected[[column]]) | seller_censo_corrected[[column]] == "")) {
+    zip_code <- seller_censo_data$seller_zip_code_prefix[i]
+    fill_value <- lookup_table %>% 
+      filter(seller_zip_code_prefix == zip_code) %>% 
+      pull(column)
+    
+    if (length(fill_value) > 0 && !is.na(fill_value)) {
+      seller_censo_corrected[i, column] <- fill_value
+    }
+  }
+}
+
+# Check NAs
+na_and_empty_geo_counts <- sapply(seller_censo_corrected, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+```
+
+```{r}
+# FIX CODE MUNI BY MATCHING NAME MUNI TO CITY NAME AND FILLING IN WITH NAME MUNI MATCHES
+
+# Step 1: Prepare a lookup table with unique seller_zip_code_prefix and geolocation_city
+lookup_table <- orders_items_sellers_geo %>%
+  select(seller_zip_code_prefix, geolocation_city) %>%
+  distinct()
+
+# Step 2: Conditionally update name_muni in seller_censo_corrected
+seller_censo_corrected_2 <- seller_censo_corrected %>%
+  mutate(name_muni = ifelse(is.na(name_muni), 
+                            lookup_table$geolocation_city[match(seller_zip_code_prefix, lookup_table$seller_zip_code_prefix)],
+                            name_muni))
+
+# Recheck NAs and blanks in seller censo data
+library(sf) 
+
+# Function to count NA and potentially empty geometries
+count_na_and_empty_geometries <- function(x) {
+  if (any(class(x) %in% c("sf", "sfc_POINT", "sfc"))) {
+    sum(is.na(x) | st_is_empty(x))
+  } else {
+    sum(is.na(x) | x == "")
+  }
+}
+
+# Apply the function to each column
+na_and_empty_geo_counts <- sapply(seller_censo_corrected_2, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+# Fill in code_muni for matching name_muni
+lookup_table <- seller_censo_corrected_2 %>%
+  filter(!is.na(code_muni) & code_muni != "") %>%
+  distinct(name_muni, code_muni)
+
+  # Fill in missing code_muni data based on name_muni matching
+for (i in which(is.na(seller_censo_corrected_2$code_muni) | seller_censo_corrected_2$code_muni == "")) {
+  muni_name <- seller_censo_corrected_2$name_muni[i]
+  fill_value <- lookup_table %>%
+    filter(name_muni == muni_name) %>%
+    pull(code_muni)
+
+  if (length(fill_value) > 0 && !is.na(fill_value)) {
+    seller_censo_corrected_2$code_muni[i] <- fill_value
+  }
+}
+
+# ReCheck NAs
+# Recheck NAs and blanks in seller censo data
+library(sf) 
+
+# Function to count NA and potentially empty geometries
+count_na_and_empty_geometries <- function(x) {
+  if (any(class(x) %in% c("sf", "sfc_POINT", "sfc"))) {
+    sum(is.na(x) | st_is_empty(x))
+  } else {
+    sum(is.na(x) | x == "")
+  }
+}
+
+# Apply the function to each column
+na_and_empty_geo_counts <- sapply(seller_censo_corrected_2, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+```
+
+```{r}
+
+# JOIN CENSO DATA BY REMOVING NA ROWS, GROUPING BY SELLER ID, JOINING
+
+# Since there are still NAs, filter for non-na rows before grouping by seller_id
+columns_to_check <- c("zone", "code_tract", "code_muni", "name_muni", 
+                      "code_state", "V002", "V003", "income_pc")
+
+# Filtering out rows where any of the specified columns have NA values
+seller_censo_data_clean <- seller_censo_corrected_2 %>%
+  filter(!is.na(zone) & !is.na(code_tract) & !is.na(code_muni) & 
+         !is.na(name_muni) & !is.na(code_state) & !is.na(V002) & 
+         !is.na(V003) & !is.na(income_pc))
+
+# Now group the data by seller id 
+seller_censo_data_byid <- seller_censo_data_clean %>%
   group_by(seller_id) %>%
   summarise(
-    seller_zip_code_prefix = first(seller_zip_code_prefix),
-    sell_geo_city = first(sell_geo_city),
-    sell_geo_state = first(sell_geo_state),
+    censo_seller_zip_code_prefix = first(seller_zip_code_prefix),
     zone = first(zone),
     code_tract = first(code_tract),
     code_muni = first(code_muni),
@@ -61,50 +498,112 @@ seller_censo_data <- seller_censo_data %>%
     population = first(V002),
     income_pc = first(income_pc))
 
-# Remove seller_zip_code_prefix to replace from censo data
-orders_items_sellers <- orders_items_sellers %>%
-  select(-seller_zip_code_prefix)
 
 # Join 
-orders_items_sellers_censo = orders_items_sellers %>%
-  left_join(seller_censo_data, by = "seller_id")
+orders_items_sellers_geo_censo = orders_items_sellers_geo %>%
+  left_join(seller_censo_data_byid, by = "seller_id")
 
+# Check NAs
+
+library(sf) 
+
+# Function to count NA and potentially empty geometries
+count_na_and_empty_geometries <- function(x) {
+  if (any(class(x) %in% c("sf", "sfc_POINT", "sfc"))) {
+    sum(is.na(x) | st_is_empty(x))
+  } else {
+    sum(is.na(x) | x == "")
+  }
+}
+
+# Apply the function to each column
+na_and_empty_geo_counts <- sapply(orders_items_sellers_geo_censo, count_na_and_empty_geometries)
+
+# Print the counts
+print(na_and_empty_geo_counts)
+
+
+# print(dim(orders_items_sellers_geo_censo))
+# write.csv(orders_items_sellers_geo_censo, "..//Data//orders_items_sellers_geo_censo.csv")
 ```
+
+
 
 ```{r}
 # Join product, catnames, & reviews DFs to agg DF
 
-orders_items_sellers_censo <- orders_items_sellers_censo %>%
+orders_items_sellers_geo_censo_products <- orders_items_sellers_geo_censo %>%
   left_join(products, by = "product_id")
 
-ord_sell_prod_review_censo <- orders_items_sellers_censo %>%
+ord_sell_prod_review_geo_censo <- orders_items_sellers_geo_censo_products %>%
   left_join(order_reviews, by = "order_id")
 
-ord_sell_prod_review_censo <- ord_sell_prod_review_censo %>%
+ord_sell_prod_review_geo_censo <- ord_sell_prod_review_geo_censo %>%
   left_join(cat_name_translation, by = "product_category_name")
 
-na_counts <- sapply(ord_sell_prod_review_censo, function(x) sum(is.na(x)))
+# Remove unneeded columns
+ord_sell_prod_review_geo_censo <- ord_sell_prod_review_geo_censo %>%
+  select(-review_comment_message, -review_comment_title, -review_answer_timestamp, -review_id)
+
+# Check NAs
+
+na_counts <- sapply(ord_sell_prod_review_geo_censo, function(x) sum(is.na(x)))
 na_counts
 
-```
-```{r}
-# Remove unneeded columns
-ord_sell_prod_review_censo <- ord_sell_prod_review_censo %>%
-  select(-review_comment_message, -review_comment_title, -review_answer_timestamp)
+# Write csv to check NAs
+write.csv(ord_sell_prod_review_geo_censo, "..//Data//ord_sell_prod_review_geo_censo.csv")
 
 ```
+
 
 
 ```{r}
 # Remove rows with NAs
 
-no_na_rows <- apply(ord_sell_prod_pay_review_censo, 1, function(x) all(!is.na(x)))
+no_na_rows <- apply(ord_sell_prod_review_geo_censo, 1, function(x) all(!is.na(x)))
 
-ord_sell_prod_review_censo_clean <- ord_sell_prod_review_censo[no_na_rows, ]
+ord_sell_prod_review_geo_censo_clean <- ord_sell_prod_review_geo_censo[no_na_rows, ]
 
-saveRDS(ord_sell_prod_review_censo_clean, "..//Data//ord_sell_prod_review_censo_clean.rds")
+saveRDS(ord_sell_prod_review_geo_censo_clean, "..//Data//ord_sell_prod_review_censo_clean.rds")
 
 ```
+
+```{r}
+# JOIN MUNI GEOMETRIC DATA
+
+# Select just geometry and muni code from muni_geom
+muni_geom <- final_muni_geom_filtered %>%
+  distinct(code_muni, .keep_all = TRUE) %>%
+  select(code_muni, geom_munis)
+
+full_seller_data <- ord_sell_prod_review_geo_censo_clean %>%
+  left_join(muni_geom, by = "code_muni")
+
+# Check NAs
+
+na_counts <- sapply(full_seller_data, function(x) sum(is.na(x)))
+na_counts
+
+```
+
+```{r}
+# Ensure datetimes are properly formatted
+full_seller_data <- full_seller_data %>%
+  mutate(order_purchase_timestamp = as.POSIXct(order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S"),
+         order_delivered_customer_date = as.POSIXct(order_delivered_customer_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_estimated_delivery_date = as.POSIXct(order_estimated_delivery_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_delivered_carrier_date = as.POSIXct(order_delivered_carrier_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_approved_at = as.POSIXct(order_approved_at, format = "%Y-%m-%d %H:%M:%S"),
+         shipping_limit_date = as.POSIXct(shipping_limit_date, format = "%Y-%m-%d %H:%M:%S")
+  )
+```
+
+```{r}
+# SAVE FULL_SELLER_DF
+saveRDS(full_seller_data, "..//Data//full_seller_data.rds")
+
+```
+
 
 ```{r}
 # Plot a Histogram of Number of Orders Per Seller as Share of Total Sellers - Checking sample sizes for LTV calc
@@ -135,6 +634,13 @@ ggplot(plot_data, aes(x = OrderBucket, y = Share.Freq)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ```
+
+```{r}
+# Create seller LTV and LV by zip and muni
+
+
+```
+
 
 ```{r}
 # Start Creation of Seller Features DF
@@ -264,8 +770,29 @@ seller_features_df <- seller_features_df %>%
 ```
 
 ```{r}
+
+# Remove duplicate total_orders
+seller_features_df <- seller_features_df %>%
+  select(-total_orders.y) %>%
+  rename(total_orders = total_orders.x)
+
+# Drop category 2 & 3 Cols
+seller_features_df <- seller_features_df %>%
+  select(-category_2, -category_3)
+
+na_counts <- sapply(seller_features_df, function(x) sum(is.na(x)))
+na_counts
+
+dim(seller_features_df)
+
+```
+
+
+```{r}
 # Save seller features df
 saveRDS(seller_features_df, "..//Data//seller_features_df.rds")
+
+str(seller_features_df)
 
 ```
 
