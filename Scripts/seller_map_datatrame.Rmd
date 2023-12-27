@@ -1,0 +1,98 @@
+Data for Leaflet Map Visualizations
+
+# DIVIDE FULL SELLER DATA DF INTO DF BY SELLER ID, DF BY ZIP AND DF BY MUNI
+  Seller Data:Zip Code; Muni_Name; Zip geom point; muni geom; LTV (first/last order date, months active, total sales);Urban v rural; avg ship share of price; avg review score
+
+```{r}
+getwd()
+full_seller_data = readRDS("..//Data/full_seller_data.rds")
+```
+
+```{r}
+# CREATE DF BY SELLER ID - calc first/last order date per seller, months active)
+
+# Calc months subscribed
+library(dplyr)
+library(lubridate)
+
+seller_subscription_dates <- full_seller_data %>%
+  group_by(seller_id) %>%
+  summarise(
+    subscription_start = min(order_purchase_timestamp, na.rm = TRUE),
+    subscription_end = max(order_purchase_timestamp, na.rm = TRUE)
+  ) %>%
+  mutate(
+    subscription_start = floor_date(subscription_start, "month"),
+    subscription_end = ceiling_date(subscription_end, "month") - days(1),
+    # Calculate the number of whole months
+    subscription_months = round(time_length(interval(subscription_start, subscription_end), "months"))
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+# calc seller map features
+seller_map_df <- full_seller_data %>%
+  group_by(seller_id) %>%
+  summarise(
+    seller_zip = first(seller_zip_code_prefix),
+    seller_city = first(geolocation_city),
+    seller_state = first(geolocation_state),
+    zone = first(zone),
+    muni_name = first(muni_name),
+    muni_geom = first(geom_munis),
+    latitude = first(latitude),
+    longitude = first(longitude),
+    zip_point = first(sell_geometry),
+    seller_zip_population = first(population),
+    seller_zip_income = first(income),
+    seller_zip_incomepc = first(income_pc),
+    unique_products_sold = n_distinct(product_id),
+    avg_price = mean(price),
+    total_sales = sum(price),
+    avg_freight = mean(freight_value),
+    total_freight = sum(freight_value),
+    total_revenue = sum(price + freight_value),
+    avg_ship_share = mean(freight_value / price) * 100,
+    avg_expected_ship_time = mean(as.numeric(floor_date(order_estimated_delivery_date, "day") - floor_date(order_purchase_timestamp, "day"))),
+    avg_ship_time = mean(as.numeric(floor_date(order_delivered_customer_date, "day") - floor_date(order_purchase_timestamp, "day"))),
+    total_orders = n_distinct(order_id),
+    avg_review_score = mean(review_score))
+
+# Create prodcat_rev_share dataframe
+
+library(tidyr)
+
+
+top_prodcats_seller <- full_seller_data %>%
+  group_by(seller_id, product_category_name_english) %>%
+  summarise(revenue = sum(price, na.rm = TRUE)) %>%
+  filter(!is.na(product_category_name_english)) %>%
+  arrange(seller_id, desc(revenue)) %>%
+  mutate(rank = row_number()) %>%
+  filter(rank <= 3) %>%
+  select(seller_id, product_category_name_english, rank) %>%  # Select only necessary columns
+  pivot_wider(names_from = rank, values_from = product_category_name_english,
+              names_prefix = "category_",
+              values_fill = list(product_category_name_english = NA))
+
+# Join
+seller_map_df <- seller_map_df %>%
+  left_join(top_prodcats_seller, by = "seller_id")
+
+# Join subscription time
+seller_map_df <- seller_map_df %>%
+  left_join(seller_subscription_dates, by = "seller_id")
+
+# Calc Seller LTV
+seller_map_df <- seller_map_df %>%
+  mutate(seller_LTV = (subscription_months * 99) + (total_sales * 0.2))
+
+```
+
+
+```{r}
+
+```
+
