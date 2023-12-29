@@ -96,7 +96,7 @@ seller_daily_sub <- seller_daily_sub %>%
   summarise(daily_fee = sum(daily_fee), .groups = 'drop')
 
 # Join subscription info back to rev_from_sellers
-rev_from_sellers <- rev_from_sellers %>%
+full_seller_data <- rev_from_sellers %>%
   left_join(subscription_info, by = "seller_id")
 
 ```

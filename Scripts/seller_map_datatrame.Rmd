@@ -36,18 +36,18 @@ seller_subscription_dates <- full_seller_data %>%
 seller_map_df <- full_seller_data %>%
   group_by(seller_id) %>%
   summarise(
-    seller_zip = first(seller_zip_code_prefix),
-    seller_city = first(geolocation_city),
-    seller_state = first(geolocation_state),
-    zone = first(zone),
-    muni_name = first(muni_name),
-    muni_geom = first(geom_munis),
-    latitude = first(latitude),
-    longitude = first(longitude),
-    zip_point = first(sell_geometry),
-    seller_zip_population = first(population),
-    seller_zip_income = first(income),
-    seller_zip_incomepc = first(income_pc),
+    seller_zip = first(na.omit(seller_zip_code_prefix)),
+    seller_city = first(na.omit(geolocation_city)),
+    seller_state = first(na.omit(geolocation_state)),
+    zone = first(na.omit(zone)),
+    muni_name = first(na.omit(name_muni)),
+    muni_geom = first(na.omit(geom_munis)),
+    latitude = first(na.omit(latitude)),
+    longitude = first(na.omit(longitude)),
+    zip_point = first(na.omit(sell_geometry)),
+    seller_zip_population = first(na.omit(population)),
+    seller_zip_income = first(na.omit(income)),
+    seller_zip_incomepc = first(na.omit(income_pc)),
     unique_products_sold = n_distinct(product_id),
     avg_price = mean(price),
     total_sales = sum(price),
@@ -93,6 +93,10 @@ seller_map_df <- seller_map_df %>%
 
 
 ```{r}
+saveRDS(seller_map_df, "..//Data//seller_map_df.rds")
 
+seller_map_exgeom <- seller_map_df %>%
+  select(-muni_geom, zip_point)
+write.csv(seller_map_exgeom, "..//Data//seller_map_exgeom.csv")
 ```
 
