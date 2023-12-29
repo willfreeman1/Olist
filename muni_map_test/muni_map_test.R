@@ -168,7 +168,7 @@ createMuniMap <- function(data, metric) {
   
   # Create the leaflet map
   leaflet(data) %>%
-    addTiles() %>%
+    addProviderTiles(providers$CartoDB.Positron) %>%
     addPolygons(
       fillColor = ~pal(get(metric)),
       color = "transparent",
