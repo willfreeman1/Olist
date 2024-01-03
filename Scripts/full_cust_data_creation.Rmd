@@ -1,0 +1,1162 @@
+```{r}
+# FULL CUSTOMER DATA DF CREATION SCRIPT
+```
+
+```{r}
+setwd("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist/Data")
+# First load all the csv files in the dataset
+orders = read.csv("olist_orders_dataset.csv")
+customers = read.csv("olist_customers_dataset.csv")
+geolocation = read.csv("olist_geolocation_dataset.csv")
+order_items = read.csv('olist_order_items_dataset.csv')
+order_payments = read.csv("olist_order_payments_dataset.csv")
+order_reviews = read.csv("olist_order_reviews_dataset.csv")
+products = read.csv("olist_products_dataset.csv")
+sellers = read.csv("olist_sellers_dataset.csv")
+cat_name_translation = read.csv("product_category_name_translation.csv")
+
+```
+
+```{r}
+# CREATE FUNC FOR CITY NAME CORRECTION
+# STANDARDIZE CITY NAMES
+
+library(dplyr)
+library(stringr)
+library(purrr)
+
+# Function to standardize city names
+standardize_city_names <- function(city_name) {
+  if (is.na(city_name)) {
+    return(city_name)
+  }
+  
+  # Remove accents
+  city_name <- stringi::stri_trans_general(city_name, "Latin-ASCII")
+
+  # Standardizing hyphenation and spacing
+  standardized_name <- str_replace_all(city_name, "[ /]", "-")
+  standardized_name <- tolower(standardized_name)
+  
+  # Correcting common misspellings and variations
+  corrections <- c(
+    "riberao-preto" = "ribeirao-preto",
+    "piumhii" = "piumhi",
+    "brasilia-df" = "brasilia",
+    "brasilia-sp" = "brasilia",
+    "mogi-guacu" = "mogi-guacu",
+    "balenario-camboriu" = "balneario-camboriu",
+    "balneario-picarras" = "balneario-picarras",
+    "barbacena-minas-gerais" = "barbacena",
+    "cachoeiras-de-macacu" = "cachoeiras-de-macacu",
+    "cariacica-es" = "cariacica",
+    "carapicuiba-sao-paulo" = "carapicuiba",
+    "lago-sul" = "brasilia",
+    "bonfim-paulista" = "ribeirao-preto",
+    "ribeirao-preto-sao-paulo" = "ribeirao-preto",
+    "ribeirao-pretp" = "ribeirao-preto",
+    "riberao-preto" = "ribeirao-preto",
+    "robeirao-preto" = "ribeirao-preto",
+    "s-jose-do-rio-preto" = "sao-jose-do-rio-preto",
+    "santo-andre-sao-paulo" = "santo-andre",
+    "sao-jose-do-rio-pret" = "sao-jose-do-rio-preto",
+    "sao-paulo-sp" = "sao-paulo",
+    "sao-paulop" = "sao-paulo",
+    "sp" = "sao-paulo",
+    "sao-paluo" = "sao-paulo",
+    "sao-caetano-do-sul" = "sao-caetano-do-sul",
+    "cascavael" = "cascavel",
+    "ferraz-de-vasconcelos" = "ferraz-de-vasconcelos",
+    "floranopolis" = "florianopolis",
+    "garulhos" = "guarulhos",
+    "itapaje" = "itapage",
+    "portoferreira" = "porto-ferreira",
+    "rio-de-janeiro-rio-de-janeiro" = "rio-de-janeiro",
+    "rio-de-janeiro-rio-de-janeiro-brasil" = "rio-de-janeiro",
+    "sao-bernardo-do-capo" = "sao-bernardo-do-campo",
+    "sao-jorge-doeste" = "sao-jorge-d'oeste",
+    "sao-jorge-do-oeste" = "sao-jorge-d'oeste",
+    "sao-jose-dos-pinhas" = "sao-jose-dos-pinhais",
+    "sao-luis-do-paraitinga" = "sao-luiz-do-paraitinga",
+    "sao-miguel-do-oeste" = "sao-miguel-d'oeste",
+    "tabao-da-serra" = "taboao-da-serra",
+    "scao-jose-do-rio-pardo" = "sao-jose-do-rio-pardo"
+  )
+
+# Apply corrections if the name is in the list
+  if (standardized_name %in% names(corrections)) {
+    return(corrections[[standardized_name]])
+  } else {
+    return(standardized_name)
+  }
+}
+
+
+```
+
+```{r}
+# CREATE & CLEAN ORDERS_ITEMS DF
+
+# Create orders + order_items DF
+orders_items = merge(orders, order_items, by = "order_id")
+
+# Remove unwanted order statuses
+unique(orders_items$order_status)
+
+orders_items <- orders_items %>%
+  filter(!order_status == "unavailable")
+
+# Review undelivered orders
+undelivered_orders <- orders_items %>%
+  filter(!order_status == "delivered")
+
+# Check NAs
+na_blanks_counts <- sapply(orders_items, function(x) sum(is.na(x) | x == ""))
+print(na_blanks_counts)
+
+print(dim(orders_items))
+```
+
+```{r}
+# MERGE CUSTOMERS DF WITH ORDERS_ITEMS
+# First correct missing leading zeroes customer zip code prefix
+customers$customer_zip_code_prefix <- sprintf("%05d", as.numeric(customers$customer_zip_code_prefix))
+
+# Check for NAs in sellers
+na_blanks_counts <- sapply(customers, function(x) sum(is.na(x) | x == ""))
+print(na_blanks_counts)
+
+#Join
+library(dplyr)
+orders_items_customers <- orders_items %>%
+  left_join(customers,by = "customer_id")
+
+# Check NAs
+na_blanks_counts <- sapply(orders_items_customers, function(x) sum(is.na(x) | x == ""))
+print(na_blanks_counts)
+
+print(dim(orders_items_customers))
+```
+
+```{r}
+# Create columns for 2,3 and 4 digit zips
+library(dplyr)
+
+orders_items_customers <- orders_items_customers %>%
+  mutate(
+    # Create '2d_prefix' by extracting the first 2 characters
+    `2d_prefix` = substr(customer_zip_code_prefix, 1, 2),
+    # Create '3d_prefix' by extracting the first 3 characters
+    `3d_prefix` = substr(customer_zip_code_prefix, 1, 3),
+    # Create '4d_prefix' by extracting the first 4 characters
+    `4d_prefix` = substr(customer_zip_code_prefix, 1, 4)
+  )
+```
+
+```{r}
+# Correct city names
+
+# Apply the function to the dataframe using map instead of sapply
+orders_items_customers_corrected <- orders_items_customers %>%
+  mutate(
+    customer_city = map_chr(customer_city, standardize_city_names),
+  )
+
+# Check unique city names
+city_names = unique(orders_items_customers_corrected$customer_city)
+city_names = sort(city_names)
+write.csv(city_names, "city_names.csv")
+```
+
+```{r}
+# CLEAN GEOLOCATION DF BEFORE JOINING
+# CLEAN & JOIN GEOLOCATION DF
+# First correct missing leading zeroes seller zip code prefix
+geolocation$geolocation_zip_code_prefix <- sprintf("%05d", as.numeric(geolocation$geolocation_zip_code_prefix))
+
+# Correct any common errors in geolocation city names
+geolocation_corrected <- geolocation %>%
+  mutate(
+    geolocation_city = map_chr(geolocation_city, standardize_city_names),
+  )
+
+# Deduplicate full row dupes in geolocation
+geolocation_corrected_unique <- geolocation_corrected %>%
+  distinct()
+
+# Since we only need geolocation city and state names, we can remove lat and longitude and then dedupe again
+geolocation_corrected_unique_nocoords <- geolocation_corrected_unique %>%
+  select(geolocation_zip_code_prefix, geolocation_city, geolocation_state)
+
+geolocation_corrected_unique_nocoords <- geolocation_corrected_unique_nocoords %>%
+  distinct()
+
+# Check for dupes
+
+
+# Apply the function to the dataframe using map instead of sapply
+geolocation_corrected_unique_nocoords <- geolocation_corrected_unique_nocoords %>%
+  mutate(
+    geolocation_city = map_chr(geolocation_city, standardize_city_names),
+  )
+
+geolocation_duplicates <- geolocation_corrected_unique_nocoords %>%
+  group_by(geolocation_zip_code_prefix) %>%
+  summarise(count = n())
+  
+
+# Geo data still has differences in state names so need to clean further
+library(stringi)
+
+# Remove accents using stringi
+geolocation_corrected_unique_nocoords$geolocation_city <- stringi::stri_trans_general(geolocation_corrected_unique_nocoords$geolocation_city, "Latin-ASCII")
+
+geolocation_corrected_unique_nocoords$geolocation_city <- tolower(geolocation_corrected_unique_nocoords$geolocation_city)
+geolocation_corrected_unique_nocoords$geolocation_city <- tolower(geolocation_corrected_unique_nocoords$geolocation_city)
+
+geolocation_corrected_unique_nocoords <- geolocation_corrected_unique_nocoords %>%
+  distinct()
+
+# Still has apostrophes making duplicates
+geolocation_corrected_unique_nocoords$geolocation_city <- gsub("[^a-zA-Z////-]", "", geolocation_corrected_unique_nocoords$geolocation_city)
+
+geolocation_corrected_unique_nocoords <- geolocation_corrected_unique_nocoords %>%
+  distinct()
+
+geolocation_duplicates <- geolocation_corrected_unique_nocoords %>%
+  group_by(geolocation_zip_code_prefix) %>%
+  summarise(count = n())
+
+
+```
+
+```{r}
+# Skipping Geolocation join - don't need. Correcting timestamp format
+
+# Ensure datetimes are properly formatted
+orders_items_customers_corrected <- orders_items_customers_corrected %>%
+  mutate(order_purchase_timestamp = as.POSIXct(order_purchase_timestamp, format = "%Y-%m-%d %H:%M:%S"),
+         order_delivered_customer_date = as.POSIXct(order_delivered_customer_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_estimated_delivery_date = as.POSIXct(order_estimated_delivery_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_delivered_carrier_date = as.POSIXct(order_delivered_carrier_date, format = "%Y-%m-%d %H:%M:%S"),
+         order_approved_at = as.POSIXct(order_approved_at, format = "%Y-%m-%d %H:%M:%S"),
+         shipping_limit_date = as.POSIXct(shipping_limit_date, format = "%Y-%m-%d %H:%M:%S")
+  )
+
+str(orders_items_customers_corrected$order_purchase_timestamp)
+```
+
+
+```{r}
+# Calculate delivery metrics
+library(dplyr)
+library(lubridate)
+
+orders_items_customers_corrected <- orders_items_customers_corrected %>%
+  mutate(
+    actual_delivery_duration = as.numeric(difftime(order_delivered_customer_date, order_purchase_timestamp, units = "days")),
+    expected_delivery_duration = as.numeric(difftime(order_estimated_delivery_date, order_purchase_timestamp, units = "days")),
+    additional_delivery_time = actual_delivery_duration - expected_delivery_duration,
+    late_delivery_percent = (additional_delivery_time / expected_delivery_duration) * 100
+  )
+
+
+```
+
+
+```{r}
+# Calculate ship share of price
+orders_items_customers_metrics <- orders_items_customers_corrected %>%
+  mutate(ship_share = (freight_value / price) * 100)
+
+```
+
+```{r}
+# Get Metrics and Geometry from final_geo_df_geom (NOTE THIS DIDN"T WORK)
+library(sf)
+library(dplyr)
+
+
+# First cut it down to what you need
+final_geo_df_geom_custmetrics <- final_geo_df_geom %>%
+  select(zip_code_prefix, year_month, customer_city, customer_state, total_cust_month, new_cust_month, returning_cust_month, cust_sales_month, cust_revenue_month, cust_zip_incomepc, avg_clv, geom_tracts, geom_munis)
+
+library(sf)
+library(dplyr)
+
+# Define the number of rows to process in each batch
+batch_size <- 10000  # Adjust this based on your system's capacity
+
+# Calculate the total number of batches
+total_batches <- ceiling(nrow(final_geo_df_geom_custmetrics) / batch_size)
+
+# Initialize an empty list to store results
+results_list <- vector("list", total_batches)
+
+for (i in 1:total_batches) {
+  # Define the start and end row for each batch
+  start_row <- (i - 1) * batch_size + 1
+  end_row <- min(i * batch_size, nrow(final_geo_df_geom_custmetrics))
+
+  # Process each batch
+  batch_data <- final_geo_df_geom_custmetrics[start_row:end_row, ]
+  processed_batch <- batch_data %>%
+    mutate(
+      wkt_tracts = st_as_text(geom_tracts),
+      wkt_munis = st_as_text(geom_munis)
+    )
+  
+  # Store the processed batch
+  results_list[[i]] <- processed_batch
+
+  # Optional: Save intermediate results to disk
+  saveRDS(processed_batch, paste0("batch_", i, ".RDS"))
+}
+
+# Combine all batches back into one dataframe
+final_result <- do.call(rbind, results_list)
+
+unique_geom_counts <- final_geo_df_geom_custmetrics_txt %>%
+  group_by(zip_code_prefix) %>%
+  summarise(
+    unique_tracts = n_distinct(wkt_tracts),
+    unique_munis = n_distinct(wkt_munis)
+  )
+
+non_unique_geoms <- unique_geom_counts %>%
+  filter(unique_tracts > 1 | unique_munis >1)
+
+final_geo_df_non_spatial_summarised <- final_geo_df_non_spatial %>%
+  group_by(zip_code_prefix) %>%
+  summarise(
+    customer_city = first(customer_city),
+    customer_state = first(customer_state),
+    total_customers = sum(total_cust_month),
+    total_sales = sum(cust_sales_month),
+    total_revenue = sum(cust_revenue_month),
+    customer_zip_incomepc = first(cust_zip_incomepc),
+    .groups = 'drop'
+  )
+
+# Assuming you're sure about unique geometries for each zip code prefix
+final_combined <- final_geo_df_non_spatial_summarised %>%
+  left_join(final_geo_df_geom_custmetrics %>%
+              select(zip_code_prefix, geom_tracts, geom_munis), 
+            by = "zip_code_prefix")
+
+orders_items_customers_metrics <- orders_items_customers_metrics %>%
+  left_join(final_combined, by = "zip_code_prefix")
+
+
+
+```
+
+```{r}
+# Transform main customer metrics df to per zip
+
+orders_items_customers_metrics_byzip <- orders_items_customers_metrics %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarise(
+    total_orders = n_distinct(order_id),
+    avg_price = mean(price, na.rm = TRUE),
+    total_sales = sum(price, na.rm = TRUE),
+    avg_freight = mean(freight_value, na.rm = TRUE),
+    total_freight = sum(freight_value, na.rm = TRUE),
+    total_unique_customers = n_distinct(customer_id),
+    customer_city = first(customer_city),
+    customer_state = first(customer_state),
+    D2_prefix = first(`2d_prefix`),
+    D3_prefix = first(`3d_prefix`),
+    D4_prefix = first(`4d_prefix`),
+    avg_delivery_time = mean(actual_delivery_duration, na.rm = TRUE),
+    avg_expected_delivery_team = mean(expected_delivery_duration, na.rm = TRUE),
+    avg_additional_delivery_time = mean(additional_delivery_time, na.rm = TRUE),
+    avg_late_delivery_percent = mean(late_delivery_percent, na.rm = TRUE),
+    avg_ship_share = mean(ship_share, na.rm = TRUE)
+  )
+
+  
+  
+```
+
+```{r}
+# add repeat customer share per zip to main perzip custmetrics df - count orders per cust and then calc final
+
+customers_by_zip <- orders_items_customers_metrics %>%
+  group_by(customer_zip_code_prefix, customer_unique_id) %>%
+  summarise(order_count = n(), .groups = 'drop') %>%
+  mutate(is_repeat_customer = ifelse(order_count >1, 1, 0))
+
+total_custs_byzip <- customers_by_zip %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarise(total_customers = n_distinct(customer_unique_id), .groups = 'drop')
+
+repeat_cust_share_byzip <- customers_by_zip %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarise(
+    total_repeat_customers = sum(is_repeat_customer, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  inner_join(total_custs_byzip, by = "customer_zip_code_prefix") %>%
+  mutate(perzip_share_repeat_custs = (total_repeat_customers / total_customers) * 100)
+
+repeat_cust_byzip = repeat_cust_share_byzip %>%
+  select(-total_customers)
+
+# Join total # of repeat custs and perzip share of repeat custs to main cust metrics df
+orders_items_customers_metrics_byzip <- orders_items_customers_metrics_byzip %>%
+  left_join(repeat_cust_byzip, by = "customer_zip_code_prefix")
+
+```
+
+
+```{r}
+# add avgreview score per to main cust df
+
+#Check if reviews are per order_id or multiple per order id
+
+order_reviews_check <- order_reviews %>%
+  group_by(order_id) %>%
+  summarise(review_count = n_distinct(review_id))
+
+# multiple reviews per order id so check how to connect via customers df - check for dupes in cust ids
+customers_total_rows = nrow(customers)
+distinct_customer_ids <- customers %>% summarise(total_distinct_customer_ids = n_distinct(customer_id))
+distinct_customer_unique_ids <- customers %>% summarise(total_distinct_customer_unique_ids = n_distinct(customer_unique_id))
+
+# Check if the counts of distinct values match the total number of rows
+customer_id_distinct <- (total_rows == distinct_customer_ids$total_distinct_customer_ids)
+customer_unique_id_distinct <- (total_rows == distinct_customer_unique_ids$total_distinct_customer_unique_ids)
+
+# Print results
+print(paste("All customer_id values are distinct:", customer_id_distinct))
+print(paste("All customer_unique_id values are distinct:", customer_unique_id_distinct))
+
+# Check unqiueness in orders DF
+total_orders <- nrow(orders)
+unique_orders <- orders %>% summarise(distinct_orders = n_distinct(order_id))
+unique_customers_in_orders <- orders %>% summarise(distinct_customers = n_distinct(customer_id))
+
+print(paste("All order_id values are unique:", total_orders == unique_orders$distinct_orders))
+print(paste("All customer_id values are unique:", total_orders == unique_customers_in_orders$distinct_customers))
+
+
+# Join orders_reviews with orders
+reviews_with_customer_id <- order_reviews %>%
+  inner_join(orders, by = "order_id")
+
+# Join result with customers df
+reviews_with_zip_code <- reviews_with_customer_id %>%
+  inner_join(customers, by = "customer_id")
+
+# Calc avg review score per zip
+avg_review_score_per_zip <- reviews_with_zip_code %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarise(
+    total_review_score = sum(review_score, na.rm = TRUE),
+    count_reviews = n(),
+    avg_review_score = total_review_score / count_reviews,
+    .groups = 'drop'
+  )
+
+# Join with main byzip cust metrics DF
+orders_items_customers_metrics_byzip <- orders_items_customers_metrics_byzip %>%
+  left_join(avg_review_score_per_zip, by = "customer_zip_code_prefix")
+
+```
+
+```{r}
+# Calc avg sale per customer per zip
+
+orders_items_customers_metrics_byzip <- orders_items_customers_metrics_byzip %>%
+  mutate(avg_sales_percust = total_sales/total_customers)
+  
+
+```
+
+```{r}
+# Calc AOV per zip
+
+aov_data <- orders_items_customers_metrics %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarise(
+    total_value = sum(price, na.rm = TRUE),
+    num_orders = n_distinct(order_id)
+  )
+
+aov_perzip <- aov_data %>%
+  mutate(aov = total_value / num_orders)
+
+aov_perzip <- aov_perzip %>%
+  select(customer_zip_code_prefix, aov)
+
+# Join with main cust metrics by zip DF
+orders_items_customers_metrics_byzip <- orders_items_customers_metrics_byzip %>%
+  left_join(aov_perzip, by = "customer_zip_code_prefix")
+
+```
+
+```{r}
+# Create muni level cust data df
+
+
+```
+
+
+
+```{r}
+# Now add geometric data
+final_geo_df = readRDS("..//Data//GCP Geo//final_geo_df.rds")
+seller_tracts = readRDS("seller_tracts.rds")
+customer_tracts = readRDS("customer_tracts.rds")
+
+# Prepare data for leaflet mapping by adding code_tract, code_muni and code_state to get spatial data
+library(sf)
+library(dplyr)
+
+
+# First create a merged version of customer_tracts and seller_tracts that only includes geo data I need
+customer_tracts_simple <- customer_tracts %>%
+  select(customer_zip_code_prefix, code_tract, code_muni, code_state) %>%
+  rename(zip_code_prefix = customer_zip_code_prefix) %>%
+  mutate(zip_code_prefix = sprintf("%05d", as.numeric(zip_code_prefix))) %>%
+  st_drop_geometry()
+
+seller_tracts_simple <- seller_tracts %>%
+  select(seller_zip_code_prefix, code_tract, code_muni, code_state) %>%
+  rename(zip_code_prefix = seller_zip_code_prefix) %>%
+  mutate(zip_code_prefix = sprintf("%05d", as.numeric(zip_code_prefix))) %>%
+  st_drop_geometry()
+
+# Ensure cust and seller tracts simple have matching geo codes per zip prefix
+combined_tracts <- rbind(customer_tracts_simple, seller_tracts_simple)
+
+# Check mismatches
+consistency_check <- combined_tracts %>%
+  group_by(zip_code_prefix) %>%
+  summarize(
+    unique_tract_count = n_distinct(code_tract),
+    unique_muni_count = n_distinct(code_muni),
+    unique_state_count = n_distinct(code_state)
+  )
+
+inconsistencies <- consistency_check %>%
+  filter(unique_tract_count > 1 | unique_muni_count > 1 | unique_state_count > 1)
+
+# Confirm zips with mismatches are in the final geo DF
+inconsistencies_final <- filter(inconsistencies, zip_code_prefix %in% final_geo_df$zip_code_prefix)
+
+# Look at tracts that are inconsistent
+# First filter combined tracts to just unique rows
+combined_tracts_unique <- combined_tracts %>%
+  distinct()
+
+combined_tracts_inconsistent_tracts <- filter(combined_tracts_unique, zip_code_prefix %in% inconsistencies_final$zip_code_prefix) 
+
+# spatially combine inconsistent tracts for the same zip prefix
+library(geobr)
+# download all census tracts spatial data
+all_tracts_brazil <- read_census_tract(code_tract = "all", year = 2010, showProgress = TRUE)
+
+# Filter for just inconsistency tracts of interest
+inconsistency_tracts_spatial <- all_tracts_brazil[all_tracts_brazil$code_tract %in% combined_tracts_inconsistent_tracts$code_tract,]
+
+# Combine the spatial data for inconsistency tracts into one spatial multipolygon
+# Merge to add zip_code_prefix to spatial data
+combined_spatial_inconsistencies <- inconsistency_tracts_spatial %>%
+  left_join(combined_tracts_inconsistent_tracts, by = "code_tract")
+
+library(sf)
+
+# Group by zip_code_prefix and combine polygons
+combined_tracts_by_zip <- combined_spatial_inconsistencies %>%
+  group_by(zip_code_prefix) %>%
+  summarize(geometry = st_union(geom), .groups = 'drop')
+
+# Now add all spatial data to combined_tracts_unique
+# First add spatial data from all_tracts_brazil (geobr)
+
+brazil_tracts_geo <- all_tracts_brazil %>%
+  select(code_tract, geom)
+
+combined_tracts_geo <- combined_tracts_unique %>%
+  left_join(brazil_tracts_geo, by = "code_tract")
+
+inconsistent_geo <- combined_tracts_by_zip %>%
+  select(zip_code_prefix, geometry)
+
+# Renaming geometry column in inconsistent_geo to match combined_tracts_geo
+inconsistent_geo <- inconsistent_geo %>%
+  rename(geom = geometry)
+
+library(dplyr)
+
+# Now replace data for inconsistent zip codes in the main geo df with the aggregated geometry
+
+# Step 1: Separate rows to replace and rows to keep
+tracts_to_replace <- combined_tracts_geo %>%
+  filter(zip_code_prefix %in% inconsistent_geo$zip_code_prefix)
+
+tracts_to_keep <- combined_tracts_geo %>%
+  filter(!zip_code_prefix %in% inconsistent_geo$zip_code_prefix)
+
+# Step 2: Update the geometry of rows to replace
+tracts_to_replace_updated <- tracts_to_replace %>%
+  select(-geom) %>%
+  left_join(inconsistent_geo, by = "zip_code_prefix")
+
+# Step 3: Combine the updated rows with the ones to keep
+combined_tracts_final <- bind_rows(tracts_to_keep, tracts_to_replace_updated)
+
+# Next join all the data to the final_geo_df
+final_geo_df_geom = final_geo_df %>%
+  left_join(combined_tracts_final, by = "zip_code_prefix", suffix = c("_final_geo", "_combined_tracts"))
+
+# Rename the geom column to geom_tracts to be clear
+final_geo_df_geom <- final_geo_df_geom %>%
+  rename(geom_tracts = geom)
+
+# Last major step is to add geometry for all municipalities and states
+# First download the data
+all_munis_brazil <- read_municipality(code_muni = "all", year = 2010, showProgress = TRUE)
+all_states_brazil <- read_state(code_state = "all", year = 2010, showProgress = TRUE)
+
+# Second check that all our muni and state codes are in the downloaded data
+all_muni_codes = all(unique(final_geo_df_geom$code_muni) %in% all_munis_brazil$code_muni)
+print(paste("All muni codes: present:", all_muni_codes))
+
+all_state_codes_present <- all(unique(final_geo_df_geom$code_state) %in% all_states_brazil$code_state)
+print(paste("All state codes present:", all_state_codes_present))
+
+# Third identify which muni and state codes are in final_geo_df_geom but not in downloaded data
+missing_muni_codes <- setdiff(unique(final_geo_df_geom$code_muni[!is.na(final_geo_df_geom$code_muni)]), 
+                              all_munis_brazil$code_muni)
+print("Missing municipal codes:")
+print(missing_muni_codes)
+
+missing_state_codes <- setdiff(unique(final_geo_df_geom$code_state[!is.na(final_geo_df_geom$code_state)]), 
+                               all_states_brazil$code_state)
+print("Missing state codes:")
+print(missing_state_codes)
+
+orders_items_customers_metrics_byzip <- orders_items_customers_metrics_byzip %>%
+  mutate(zip_code_prefix = as.character(customer_zip_code_prefix))
+
+combined_tracts_final <- combined_tracts %>%
+  mutate(zip_code_prefix = as.character(zip_code_prefix))
+
+# Join the geometric data with the orders dataframe
+orders_items_customers_metrics_geo <- orders_items_customers_metrics %>%
+  left_join(combined_tracts_final, by = c("customer_zip_code_prefix" = "zip_code_prefix"))
+
+# Join the final geometric data per zip to the custmetrics byzip df
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip %>%
+  left_join(combined_tracts_geo, by = c("customer_zip_code_prefix" = "zip_code_prefix"))
+```
+
+```{r}
+
+# Apply st_make_valid() to each geometry
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  mutate(geom = st_make_valid(geom))
+
+# Simplify the geometries in the aggregated data
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  mutate(
+    geom = st_simplify(geom, dTolerance = 0.01)  # Adjust the tolerance as needed
+  )
+
+
+
+# save custmetrics byzip with geom df
+saveRDS(orders_items_customers_metrics_byzip_geo,"orders_items_customers_metrics_byzip_geo.rds" )
+
+
+
+```
+
+```{r}
+# Create muni level custmetrics DF
+
+# Group by muni and aggregate data
+orders_items_customers_metrics_muni_geo <- orders_items_customers_metrics_byzip_geo %>%
+  group_by(code_muni) %>%
+  summarize(
+    total_sales = sum(total_sales, na.rm = TRUE),
+    total_orders = sum(total_orders, na.rm = TRUE),
+    total_freight = sum(total_freight, na.rm = TRUE),
+    total_unique_customers = sum(total_unique_customers, na.rm = TRUE),
+    avg_delivery_time = sum(avg_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_expected_delivery_time = sum(avg_expected_delivery_team * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_additional_delivery_time = sum(avg_additional_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_late_delivery_percent = sum(avg_late_delivery_percent * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    total_repeat_customers = sum(total_repeat_customers, na.rm = TRUE),
+    total_review_score = sum(total_review_score, na.rm = TRUE),
+    count_reviews = sum(count_reviews, na.rm = TRUE),
+    .groups = 'keep'  # Keep group structure after aggregation
+  )
+# Aggregate secondary metrics  
+orders_items_customers_metrics_muni_geo <- orders_items_customers_metrics_muni_geo %>%
+  mutate(
+    avg_ship_share = ifelse(total_sales > 0, (total_freight / total_sales) * 100, 0),
+    aov = ifelse(total_orders > 0, (total_sales / total_orders), 0),
+    perzip_share_repeat_custs = ifelse(total_unique_customers > 0, (total_repeat_customers / total_unique_customers) * 100, 0),
+    avg_review_score = ifelse(count_reviews > 0, total_review_score / count_reviews, 0)
+  )
+
+
+# Join muni geometry
+muni_geom <- all_munis_brazil_corrected %>%
+  select(code_muni,name_muni, geom)
+
+orders_items_customers_metrics_muni_geo <- orders_items_customers_metrics_muni_geo %>%
+  left_join(muni_geom, by = "code_muni")
+
+# Convert the result back to an sf object if necessary
+orders_items_customers_metrics_D3zip_geo <- st_as_sf(orders_items_customers_metrics_D3zip_geo)
+
+
+```
+
+```{r}
+# Create state - level custmetrics DF
+
+# Group by state and aggregate data
+orders_items_customers_metrics_state_geo <- orders_items_customers_metrics_byzip_geo %>%
+  group_by(code_state) %>%
+  summarize(
+    total_sales = sum(total_sales, na.rm = TRUE),
+    total_orders = sum(total_orders, na.rm = TRUE),
+    total_freight = sum(total_freight, na.rm = TRUE),
+    total_unique_customers = sum(total_unique_customers, na.rm = TRUE),
+    avg_delivery_time = sum(avg_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_expected_delivery_time = sum(avg_expected_delivery_team * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_additional_delivery_time = sum(avg_additional_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_late_delivery_percent = sum(avg_late_delivery_percent * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    total_repeat_customers = sum(total_repeat_customers, na.rm = TRUE),
+    total_review_score = sum(total_review_score, na.rm = TRUE),
+    count_reviews = sum(count_reviews, na.rm = TRUE),
+    .groups = 'keep'  # Keep group structure after aggregation
+  )
+# Aggregate secondary metrics  
+orders_items_customers_metrics_state_geo <- orders_items_customers_metrics_state_geo %>%
+  mutate(
+    avg_ship_share = ifelse(total_sales > 0, (total_freight / total_sales) * 100, 0),
+    aov = ifelse(total_orders > 0, (total_sales / total_orders), 0),
+    perzip_share_repeat_custs = ifelse(total_unique_customers > 0, (total_repeat_customers / total_unique_customers) * 100, 0),
+    avg_review_score = ifelse(count_reviews > 0, total_review_score / count_reviews, 0)
+  )
+
+
+# Join muni geometry
+state_geom <- all_states_brazil %>%
+  select(code_state,name_state, geom)
+
+orders_items_customers_metrics_state_geo <- orders_items_customers_metrics_state_geo %>%
+  left_join(state_geom, by = "code_state")
+
+# Convert the result back to an sf object if necessary
+orders_items_customers_metrics_state_geo <- st_as_sf(orders_items_customers_metrics_state_geo)
+
+
+```
+
+
+
+```{r}
+# CREATE OTHER LEVELS OF CUSTMETRICS AGGREGATION (1D_prefix 3D_PREFIX)
+
+
+library(dplyr)
+library(sf)
+library(purrr)
+
+
+
+# Split the dataframe by D3_prefix
+split_data <- split(orders_items_customers_metrics_byzip_geo, orders_items_customers_metrics_byzip_geo$D3_prefix)
+
+# Apply st_union() to each subset and recombine
+geom_aggregated <- map_df(split_data, function(df) {
+  data.frame(
+    D3_prefix = unique(df$D3_prefix),
+    geometry = st_union(df$geom)
+  )
+}, .id = "D3_prefix")
+
+# Aggregate non-spatial data
+orders_items_customers_metrics_D3zip_non_geo <- orders_items_customers_metrics_byzip_geo %>%
+  group_by(D3_prefix) %>%
+  summarize(
+    total_sales = sum(total_sales, na.rm = TRUE),
+    total_orders = sum(total_orders, na.rm = TRUE),
+    total_freight = sum(total_freight, na.rm = TRUE),
+    total_unique_customers = sum(total_unique_customers, na.rm = TRUE),
+    avg_delivery_time = sum(avg_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_expected_delivery_time = sum(avg_expected_delivery_team * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_additional_delivery_time = sum(avg_additional_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_late_delivery_percent = sum(avg_late_delivery_percent * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    total_repeat_customers = sum(total_repeat_customers, na.rm = TRUE),
+    total_review_score = sum(total_review_score, na.rm = TRUE),
+    count_reviews = sum(count_reviews, na.rm = TRUE),
+    .groups = 'keep'
+  )    
+
+# Join the aggregated geometries with the non-spatial data
+orders_items_customers_metrics_D3zip_geo <- left_join(orders_items_customers_metrics_D3zip_non_geo, geom_aggregated, by = "D3_prefix")
+
+
+# Aggregate secondary metrics  
+orders_items_customers_metrics_D3zip_geo <- orders_items_customers_metrics_D3zip_geo %>%
+  mutate(
+    avg_ship_share = ifelse(total_sales > 0, (total_freight / total_sales) * 100, 0),
+    aov = ifelse(total_orders > 0, (total_sales / total_orders), 0),
+    perzip_share_repeat_custs = ifelse(total_unique_customers > 0, (total_repeat_customers / total_unique_customers) * 100, 0),
+    avg_review_score = ifelse(count_reviews > 0, total_review_score / count_reviews, 0)
+  )
+
+
+
+```
+
+```{r}
+# Repeat for D1_prefix
+
+# first create D1_prefix column
+
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  mutate(
+    D1_prefix = substr(as.character(customer_zip_code_prefix), 1, 1)
+  )
+
+
+# Split the dataframe by D1_prefix
+split_data <- split(orders_items_customers_metrics_byzip_geo, orders_items_customers_metrics_byzip_geo$D1_prefix)
+
+# Apply st_union() to each subset and recombine
+geom_aggregated <- map_df(split_data, function(df) {
+  data.frame(
+    D1_prefix = unique(df$D1_prefix),
+    geometry = st_union(df$geom)
+  )
+}, .id = "D3_prefix")
+
+# Aggregate non-spatial data
+orders_items_customers_metrics_D1zip_non_geo <- orders_items_customers_metrics_byzip_geo %>%
+  group_by(D1_prefix) %>%
+  summarize(
+    total_sales = sum(total_sales, na.rm = TRUE),
+    total_orders = sum(total_orders, na.rm = TRUE),
+    total_freight = sum(total_freight, na.rm = TRUE),
+    total_unique_customers = sum(total_unique_customers, na.rm = TRUE),
+    avg_delivery_time = sum(avg_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_expected_delivery_time = sum(avg_expected_delivery_team * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_additional_delivery_time = sum(avg_additional_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_late_delivery_percent = sum(avg_late_delivery_percent * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    total_repeat_customers = sum(total_repeat_customers, na.rm = TRUE),
+    total_review_score = sum(total_review_score, na.rm = TRUE),
+    count_reviews = sum(count_reviews, na.rm = TRUE),
+    .groups = 'keep'
+  )    
+
+# Join the aggregated geometries with the non-spatial data
+orders_items_customers_metrics_D1zip_geo <- left_join(orders_items_customers_metrics_D1zip_non_geo, geom_aggregated, by = "D1_prefix")
+
+
+# Aggregate secondary metrics  
+orders_items_customers_metrics_D1zip_geo <- orders_items_customers_metrics_D1zip_geo %>%
+  mutate(
+    avg_ship_share = ifelse(total_sales > 0, (total_freight / total_sales) * 100, 0),
+    aov = ifelse(total_orders > 0, (total_sales / total_orders), 0),
+    perzip_share_repeat_custs = ifelse(total_unique_customers > 0, (total_repeat_customers / total_unique_customers) * 100, 0),
+    avg_review_score = ifelse(count_reviews > 0, total_review_score / count_reviews, 0)
+  )
+
+
+
+
+
+```
+
+```{r}
+library(dplyr)
+library(sf)
+
+# Assuming your data frame is orders_items_customers_metrics_byzip_geo
+
+# Group by D3_prefix and aggregate data
+orders_items_customers_metrics_D3zip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  group_by(D3_prefix) %>%
+  summarize(
+   total_sales = sum(total_sales, na.rm = TRUE),
+    total_orders = sum(total_orders, na.rm = TRUE),
+    total_freight = sum(total_freight, na.rm = TRUE),
+    total_unique_customers = sum(total_unique_customers, na.rm = TRUE),
+    avg_delivery_time = sum(avg_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_expected_delivery_time = sum(avg_expected_delivery_team * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_additional_delivery_time = sum(avg_additional_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_late_delivery_percent = sum(avg_late_delivery_percent * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    total_repeat_customers = sum(total_repeat_customers, na.rm = TRUE),
+    total_review_score = sum(total_review_score, na.rm = TRUE),
+    count_reviews = sum(count_reviews, na.rm = TRUE),
+    geometry = st_union(geom),  # Spatially merge geometries
+    .groups = 'keep'  # Keep group structure after aggregation
+  )
+
+# Convert the result back to an sf object if necessary
+orders_items_customers_metrics_D3zip_geo <- st_as_sf(orders_items_customers_metrics_D3zip_geo)
+```
+
+
+
+```{r}
+# test leaflet map at zip level
+
+custmetrics_zip_geo <- orders_items_customers_metrics_byzip_geo
+str(custmetrics_zip_geo)
+
+
+if (!inherits(custmetrics_zip_geo, "sf")) {
+  custmetrics_zip_geo <- st_as_sf(custmetrics_zip_geo)
+}
+
+custmetrics_zip_geo <- custmetrics_zip_geo %>% 
+  st_transform(crs = 4326)  # CRS code 4326 is for WGS84
+
+custmetrics_zip_geo <- custmetrics_zip_geo %>%
+    st_transform(crs = 4326) %>%
+    st_simplify(preserveTopology = TRUE, dTolerance = 0.01)
+
+# filter out geometry collections
+custmetrics_zip_geo <- custmetrics_zip_geo %>%
+  filter(st_geometry_type(geom) != "GEOMETRYCOLLECTION")
+
+library(leaflet)
+library(RColorBrewer)
+library(scales) # For the log transformation
+
+# Create a logarithmic color palette
+pal <- colorNumeric(palette = "viridis", domain = log1p(custmetrics_zip_geo$total_sales))
+
+# Create the Leaflet map with the logarithmic color scale
+leaflet(custmetrics_zip_geo) %>%
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addPolygons(
+        fillColor = ~pal(log1p(total_sales)), # Apply log transformation here
+        weight = 1,
+        opacity = 1,
+        color = "#transparent", # Slightly darker boundary color for better visibility
+        dashArray = "3",
+        fillOpacity = 0.7,
+        highlightOptions = highlightOptions(
+            weight = 3,
+            color = "#666666",
+            dashArray = "",
+            fillOpacity = 0.7,
+            bringToFront = TRUE
+        ),
+        label = ~paste("Zip Code:", zip_code_prefix, "<br>",
+                       "Total Sales:", formatC(expm1(total_sales)), # Inverse of log1p for display
+                       " (Log Scale)"),
+        labelOptions = labelOptions(
+            style = list("font-weight" = "normal", padding = "3px 8px"),
+            textsize = "15px",
+            direction = "auto"
+        )
+    ) %>%
+    addLegend(
+        position = "bottomright",
+        pal = pal,
+        values = ~log1p(total_sales), # Apply log transformation here as well
+        title = "Total Sales (Log Scale)",
+        labFormat = labelFormat(transform = function(x) expm1(x)), # Inverse of log1p for legend labels
+        opacity = 0.7
+    )
+
+
+
+
+```
+
+
+```{r}
+# test leaflet map at Muni level
+
+custmetrics_muni_geo <- orders_items_customers_metrics_muni_geo
+str(custmetrics_muni_geo)
+
+
+if (!inherits(custmetrics_muni_geo, "sf")) {
+  custmetrics_muni_geo <- st_as_sf(custmetrics_muni_geo)
+}
+
+custmetrics_muni_geo <- custmetrics_muni_geo %>% 
+  st_transform(crs = 4326)  # CRS code 4326 is for WGS84
+
+# filter out geometry collections
+custmetrics_muni_geo <- custmetrics_muni_geo %>%
+  filter(st_geometry_type(geom) != "GEOMETRYCOLLECTION")
+
+library(leaflet)
+library(RColorBrewer)
+library(scales) # For the log transformation
+
+# Create a logarithmic color palette
+pal <- colorNumeric(palette = "viridis", domain = log1p(custmetrics_muni_geo$total_sales))
+
+# Create the Leaflet map with the logarithmic color scale
+leaflet(custmetrics_muni_geo) %>%
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addPolygons(
+        fillColor = ~pal(log1p(total_sales)), # Apply log transformation here
+        weight = 1,
+        opacity = 1,
+        color = "#transparent", # Slightly darker boundary color for better visibility
+        dashArray = "3",
+        fillOpacity = 0.7,
+        highlightOptions = highlightOptions(
+            weight = 3,
+            color = "#666666",
+            dashArray = "",
+            fillOpacity = 0.7,
+            bringToFront = TRUE
+        ),
+        label = ~paste("Municipality:", name_muni , "<br>",
+                       "Total Sales:", formatC(expm1(total_sales)), # Inverse of log1p for display
+                       " (Log Scale)"),
+        labelOptions = labelOptions(
+            style = list("font-weight" = "normal", padding = "3px 8px"),
+            textsize = "15px",
+            direction = "auto"
+        )
+    ) %>%
+    addLegend(
+        position = "bottomright",
+        pal = pal,
+        values = ~log1p(total_sales), # Apply log transformation here as well
+        title = "Total Sales (Log Scale)",
+        labFormat = labelFormat(transform = function(x) expm1(x)), # Inverse of log1p for legend labels
+        opacity = 0.7
+    )
+
+
+
+```
+
+```{r}
+# test leaflet map at State level
+
+custmetrics_state_geo <- orders_items_customers_metrics_state_geo
+str(custmetrics_state_geo)
+
+
+if (!inherits(custmetrics_state_geo, "sf")) {
+  custmetrics_state_geo <- st_as_sf(custmetrics_state_geo)
+}
+
+custmetrics_state_geo <- custmetrics_state_geo %>% 
+  st_transform(crs = 4326)  # CRS code 4326 is for WGS84
+
+# filter out geometry collections
+custmetrics_state_geo <- custmetrics_state_geo %>% 
+  filter(st_geometry_type(geom) != "GEOMETRYCOLLECTION")
+
+library(leaflet)
+library(RColorBrewer)
+library(scales) # For the log transformation
+
+# Create a logarithmic color palette
+pal <- colorNumeric(palette = "viridis", domain = log1p(custmetrics_state_geo$total_sales))
+
+# Create the Leaflet map with the logarithmic color scale
+leaflet(custmetrics_state_geo) %>%
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addPolygons(
+        fillColor = ~pal(log1p(total_sales)), # Apply log transformation here
+        weight = 1,
+        opacity = 1,
+        color = "#transparent", # Slightly darker boundary color for better visibility
+        dashArray = "3",
+        fillOpacity = 0.7,
+        highlightOptions = highlightOptions(
+            weight = 3,
+            color = "#666666",
+            dashArray = "",
+            fillOpacity = 0.7,
+            bringToFront = TRUE
+        ),
+        label = ~paste("State:", name_state , "<br>",
+                       "Total Sales:", formatC(expm1(total_sales)), # Inverse of log1p for display
+                       " (Log Scale)"),
+        labelOptions = labelOptions(
+            style = list("font-weight" = "normal", padding = "3px 8px"),
+            textsize = "15px",
+            direction = "auto"
+        )
+    ) %>%
+    addLegend(
+        position = "bottomright",
+        pal = pal,
+        values = ~log1p(total_sales), # Apply log transformation here as well
+        title = "Total Sales (Log Scale)",
+        labFormat = labelFormat(transform = function(x) expm1(x)), # Inverse of log1p for legend labels
+        opacity = 0.7
+    )
+
+
+```
+
+
+```{r}
+# Add lat/lng coordinates to try other visualization methods
+cust_zip_lat_lng <- geo_df_delivered_clean_census %>%
+  select(customer_zip_code_prefix, cust_geo_lat, cust_geo_lng)
+
+cust_zip_lat_lng <- cust_zip_lat_lng %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarize(
+    cust_avg_lat = mean(cust_geo_lat),
+    cust_avg_lng = mean(cust_geo_lng)
+  )
+
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  left_join(cust_zip_lat_lng, by = "customer_zip_code_prefix")
+  
+
+```
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+
+ggplot(orders_items_customers_metrics_byzip_geo, aes(x = cust_avg_lng, y = cust_avg_lat)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Distribution of Customer Locations",
+       x = "Longitude",
+       y = "Latitude")
+```
+
+```{r}
+# Remove invalid data - NAs and lat/lng outside brazil
+
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  filter(!(is.na(cust_avg_lat) | is.na(cust_avg_lng) |
+           cust_avg_lat < -90 | cust_avg_lat > 90 |
+           cust_avg_lng < -180 | cust_avg_lng > 180))
+
+brazil_lat_min <- -33.751748
+brazil_lat_max <- 5.271841
+brazil_lng_min <- -73.982817
+brazil_lng_max <- -34.792999
+
+# Filter the dataset to include only points within Brazil
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  filter(cust_avg_lat >= brazil_lat_min & cust_avg_lat <= brazil_lat_max &
+         cust_avg_lng >= brazil_lng_min & cust_avg_lng <= brazil_lng_max)
+```
+
+```{r}
+
+```
+
