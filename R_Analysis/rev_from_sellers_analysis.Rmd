@@ -57,6 +57,206 @@ rev_from_sellers <- rev_from_sellers %>%
 ```
 
 ```{r}
+library(ggplot2)
+
+# Step 1: Count the number of unique orders for each seller
+sales_per_seller <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  summarise(total_sales = n_distinct(order_id)) %>%
+  ungroup()
+
+# Step 2: Create a histogram
+ggplot(sales_per_seller, aes(x = total_sales)) +
+  geom_histogram(binwidth = 5, color = "black", fill = "blue") +
+  labs(title = "Histogram of Sellers by Number of Total Sales",
+       x = "Number of Sales",
+       y = "Number of Sellers") +
+  theme_minimal()
+
+```
+
+```{r}
+# Step 1: Count the number of unique orders for each seller
+sales_per_seller <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  summarise(total_sales = n_distinct(order_id)) %>%
+  ungroup()
+
+# Step 2: Create bins with a width of 2 for total sales and calculate the count of sellers in each bin
+sales_bins <- cut(sales_per_seller$total_sales, breaks = seq(from = min(sales_per_seller$total_sales), to = max(sales_per_seller$total_sales), by = 2), right = FALSE, include.lowest = TRUE)
+table_sales_bins <- table(sales_bins)
+
+# Step 3: Calculate percent of total sellers for each bin
+percent_sellers <- prop.table(table_sales_bins) * 100
+
+# Step 4: Create a table displaying these percentages
+percent_sellers_df <- data.frame('Sales Range' = names(percent_sellers), 'Percent of Total Sellers' = percent_sellers)
+
+# View the table
+percent_sellers_df
+
+```
+```{r}
+# Assuming rev_from_sellers already exists and is prepared
+
+library(lubridate)
+
+# Step 1: Calculate total sales and active selling days per seller
+seller_stats <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  summarise(first_sale = min(order_purchase_timestamp),
+            last_sale = max(order_purchase_timestamp),
+            total_sales = n_distinct(order_id)) %>%
+  mutate(active_days = as.numeric(difftime(last_sale, first_sale, units = "days")) + 1, # Adding 1 to include the first day
+         avg_sales_per_day = ifelse(active_days > 0, total_sales / active_days, 0)) %>%
+  ungroup()
+
+# Step 3: Visual Analysis
+ggplot(seller_stats, aes(x = total_sales, y = avg_sales_per_day)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", color = "blue", se = FALSE) +
+  labs(title = "Average Sales per Day vs. Total Sales",
+       x = "Total Sales",
+       y = "Average Sales per Day") +
+  theme_minimal()
+
+# This plot should help identify the leveling point for avg_sales_per_day
+
+```
+
+```{r}
+library(ggplot2)
+library(lubridate)
+
+# Step 1: Calculate total sales value and active selling days per seller
+seller_value_stats <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  summarise(first_sale = min(order_purchase_timestamp),
+            last_sale = max(order_purchase_timestamp),
+            total_sales_value = sum(price)) %>%
+  mutate(active_days = as.numeric(difftime(last_sale, first_sale, units = "days")) + 1, # Adding 1 to include the first day
+         avg_sales_value_per_day = ifelse(active_days > 0, total_sales_value / active_days, 0)) %>%
+  ungroup()
+
+# Step 4: Plot the Data
+ggplot(seller_value_stats, aes(x = total_sales_value, y = avg_sales_value_per_day)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", color = "blue", se = FALSE) +
+  labs(title = "Average Sales Value per Day vs. Total Sales Value",
+       x = "Total Sales Value",
+       y = "Average Sales Value per Day") +
+  theme_minimal()
+
+# This plot will help you visualize the relationship and identify any leveling off points.
+
+```
+
+```{r}
+# Assuming rev_from_sellers already exists and is prepared
+
+# Step 1 & 2: Calculate total number of orders and total sales value per seller
+seller_orders_stats <- rev_from_sellers %>%
+  group_by(seller_id) %>%
+  summarise(total_orders = n_distinct(order_id),
+            total_sales_value = sum(price),
+            first_sale = min(order_purchase_timestamp),
+            last_sale = max(order_purchase_timestamp)) %>%
+  mutate(active_days = as.numeric(difftime(last_sale, first_sale, units = "days")) + 1, # Adding 1 to include the first day
+         avg_sales_value_per_day = ifelse(active_days > 0, total_sales_value / active_days, 0)) %>%
+  ungroup()
+
+# Step 5: Plot the Data
+ggplot(seller_orders_stats, aes(x = total_orders, y = avg_sales_value_per_day)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", color = "blue", se = FALSE) +
+  labs(title = "Average Sales Value per Day vs. Total Number of Orders",
+       x = "Total Number of Orders",
+       y = "Average Sales Value per Day") +
+  theme_minimal()
+
+# This plot will help you visualize the relationship and identify any leveling off points.
+
+```
+
+```{r}
+library(zoo)
+
+# Assuming seller_orders_stats is already created
+
+# Calculate moving averages and variances with a rolling window
+# Adjust the window size to smooth over the appropriate number of data points
+window_size <- 50  # Window size can be changed based on data density
+
+seller_orders_stats <- seller_orders_stats %>%
+  arrange(total_orders) %>%
+  mutate(moving_avg = rollmean(avg_sales_value_per_day, k = window_size, fill = NA, align = "right"),
+         moving_var = rollapply(avg_sales_value_per_day, width = window_size, FUN = var, fill = NA, align = "right"))
+
+# Plot the data with moving averages and variances
+ggplot(seller_orders_stats, aes(x = total_orders)) +
+  geom_line(aes(y = moving_avg), color = "blue") +
+  geom_line(aes(y = sqrt(moving_var)), color = "red") +
+  labs(title = "Moving Average and Standard Deviation of Avg Sales Value per Day",
+       x = "Total Number of Orders",
+       y = "Value") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_y_continuous(sec.axis = sec_axis(~.^2, name = "Variance"))
+
+# Plotting the data may reveal when the average sales value per day stabilizes
+
+```
+```{r}
+# Adjust the plotting code to zoom in on the first 500 orders
+
+ggplot(seller_orders_stats, aes(x = total_orders)) +
+  geom_line(aes(y = moving_avg), color = "blue") +
+  geom_line(aes(y = sqrt(moving_var)), color = "red") +
+  labs(title = "Moving Average and Standard Deviation of Avg Sales Value per Day (Up to 500 Orders)",
+       x = "Total Number of Orders (up to 500)",
+       y = "Value") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_y_continuous(sec.axis = sec_axis(~.^2, name = "Variance")) +
+  coord_cartesian(xlim = c(0, 50)) # Zoom in on the x-axis
+
+# This plot will focus on the total number of orders up to 500 and may provide a better view of when the average stabilizes.
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(zoo)
+
+# Assuming rev_from_sellers is already created
+
+# Use seller_orders_stats to filter for sellers with more than 3 orders
+filtered_sellers <- seller_orders_stats %>%
+  filter(total_orders > 3)
+
+# Define the bin width
+binwidth <- 50
+
+# Find the max value for the x-axis
+max_value <- max(filtered_sellers$avg_sales_value_per_day)
+
+# Create breaks and labels for the histogram
+breaks <- seq(0, max_value, by = binwidth)
+labels <- paste(head(breaks, -1), head(breaks, -1) + binwidth - 1, sep = "-")
+
+# Plot the histogram with custom breaks and labels
+ggplot(filtered_sellers, aes(x = avg_sales_value_per_day)) +
+  geom_histogram(binwidth = binwidth, fill = "blue", color = "black") +
+  scale_x_continuous(breaks = head(breaks, -1), labels = labels) + # Exclude the last break for labels
+  labs(title = "Histogram of Sellers' Average Daily Sales Value (More than 3 Orders)",
+       x = "Average Daily Sales Value Range",
+       y = "Number of Sellers") +
+  theme_minimal()
+
+```
+
+```{r}
 # Calculate active SaaS subcribers
 
 library(lubridate)

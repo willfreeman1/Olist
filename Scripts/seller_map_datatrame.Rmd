@@ -100,3 +100,83 @@ seller_map_exgeom <- seller_map_df %>%
 write.csv(seller_map_exgeom, "..//Data//seller_map_exgeom.csv")
 ```
 
+
+```{r}
+# Check for correlations with seller_LTV
+
+library(ggplot2)
+
+# Assuming seller_map_df has columns unique_products_sold and seller_LTV
+# Calculate correlation coefficient
+cor_coeff <- cor(seller_map_df$avg_ship_share, seller_map_df$total_sales, use = "complete.obs")
+
+# Create the plot
+ggplot(seller_map_df, aes(x = avg_ship_share, y = total_sales)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add best fit line without standard error
+  annotate("text", x = Inf, y = Inf, label = paste("Correlation: ", round(cor_coeff, 2)), 
+           hjust = 1.1, vjust = 1.1, size = 4, color = "blue")  # Annotate with correlation
+
+```
+
+```{r}
+# Lorenz Curve of Seller LTV Concentration
+
+library(ggplot2)
+
+# Ensure your data is sorted
+seller_map_df <- seller_map_df[order(seller_map_df$seller_LTV), ]
+
+# Calculate cumulative sums
+seller_map_df$cumulative_LTV <- cumsum(seller_map_df$seller_LTV)
+seller_map_df$cumulative_sellers <- seq_along(seller_map_df$seller_LTV)
+
+# Normalize to get percentages
+seller_map_df$cumulative_LTV <- seller_map_df$cumulative_LTV / max(seller_map_df$cumulative_LTV)
+seller_map_df$cumulative_sellers <- seller_map_df$cumulative_sellers / length(seller_map_df$cumulative_sellers)
+
+# Plot
+ggplot(seller_map_df, aes(x = cumulative_sellers, y = cumulative_LTV)) +
+  geom_line() +
+  labs(x = "Cumulative Share of Sellers", y = "Cumulative Share of Seller LTV",
+       title = "Lorenz Curve of Seller LTV") +
+  theme_minimal()
+
+
+```
+
+```{r}
+# Pareto of seller LTV concentration
+library(ggplot2)
+library(dplyr)
+
+# Sort and mutate to add cumulative sum
+seller_map_df <- seller_map_df %>%
+  arrange(desc(seller_LTV)) %>%
+  mutate(cumulative_LTV = cumsum(seller_LTV) / sum(seller_LTV))
+
+# Create the Pareto Chart
+ggplot(seller_map_df, aes(x = reorder(seller_id, seller_LTV), y = seller_LTV)) +
+  geom_bar(stat = "identity") +
+  geom_line(aes(y = cumulative_LTV), group = 1, color = "blue") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * max(seller_map_df$seller_LTV), name = "Cumulative LTV")) +
+  labs(x = "Seller", y = "Seller LTV", 
+       title = "Pareto Chart of Seller LTV") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+```{r}
+# Calc per seller share of total LTV
+
+seller_map_df <- seller_map_df %>%
+  mutate(seller_LTV_share = seller_LTV / sum(seller_LTV) * 100)
+
+# Same by muni
+
+muni_map_sf <- muni_map_sf %>%
+  mutate(muni_LTV_share = total_seller_LTV / sum(total_seller_LTV) * 100)
+
+```
+
