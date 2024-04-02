@@ -93,16 +93,19 @@ function(input, output, session) {
       filtered_data <- rev_split %>%
         filter(order_purchase_timestamp >= input$dateRange[1] & order_purchase_timestamp <= input$dateRange[2])
       # Recreate the stacked area chart
-      p <- ggplot(filtered_data, aes(x = order_purchase_timestamp)) +
-        geom_area(aes(y = olist_rev_share_ma, fill = "20% Revenue Share"), position = "stack") +
-        geom_area(aes(y = daily_fee_ma, fill = "Subscription Revenue"), position = "stack") +
-        scale_fill_manual(values = c("20% Revenue Share" = "blue", "Subscription Revenue" = "red")) +
-        labs(title = "10-Day Moving Average of Olist Revenue Streams",
-             x = "Date", y = "Revenue (BRL)", fill = "Revenue Type") +
-        ylim(0, 15000) +
+      p <- ggplot(filtered_data, aes(x = order_purchase_timestamp, y = Amount, fill = `Revenue Type`)) +
+        geom_area(position = "stack", alpha = 0.6) +
+        scale_fill_manual(values = c("olist_rev_share_10DMA" = "lightcoral", 
+                                     "daily_subscription_revenue_10DMA" = "steelblue")) +
+        labs(title = "10-Day Moving Averages of Olist Revenue Share and Daily Subscription Revenue",
+             x = "Date",
+             y = "10-Day Moving Average (DMA)",
+             fill = "Revenue Type") +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
         custom_theme()
       p <- apply_pastel1_palette(p, type = "fill")
-    }
+  }
     
     # Check for "Sellers New vs Old" chart
     if (input$dashboardType == "Seller Data" && input$chartType == "Sellers New vs Old") {
@@ -129,14 +132,14 @@ function(input, output, session) {
       p <- ggplot(filtered_data, aes(x = month)) +
         geom_bar(aes(y = new_sellers, fill = "New Sellers"), stat = "identity") +
         geom_bar(aes(y = -lost_sellers, fill = "Churned Sellers"), stat = "identity") +
-        geom_line(aes(y = net_change, group = 1), color = "blue", linewidth = 1) +
+        geom_line(aes(y = net_subscriber_change, group = 1), color = "blue") +
         scale_fill_manual(values = c("New Sellers" = "green", "Churned Sellers" = "red")) +
         labs(title = "Monthly Seller Acquisition vs Churn (Jan 2017 - Jul 2018)",
              x = "Month",
              y = "Number of Sellers",
              fill = "Seller Type") +
-        custom_theme() +
-        scale_y_continuous(labels = abs, sec.axis = sec_axis(~ ., name = "Net Change"))
+        theme_minimal() +
+        scale_y_continuous(labels = abs, sec.axis = sec_axis(~ ., name = "Net Subscriber Change"))
       p <- apply_pastel1_palette(p, type = "fill")
     }
     

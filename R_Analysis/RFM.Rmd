@@ -69,6 +69,78 @@ rfm = recency_df %>%
 head(rfm)
 
 ```
+```{r}
+summary(rfm[, c("Recency", "Frequency", "Monetary")])
+
+```
+
+```{r}
+# Plotting histograms for each RFM component
+
+# Histogram for Recency
+ggplot(rfm, aes(x = Recency)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  labs(title = "Distribution of Recency",
+       x = "Recency (days)",
+       y = "Number of Customers") +
+  theme_minimal()
+
+# Histogram for Frequency
+ggplot(rfm, aes(x = Frequency)) +
+  geom_histogram(bins = 30, fill = "green", color = "black") +
+  labs(title = "Distribution of Frequency",
+       x = "Frequency (number of orders)",
+       y = "Number of Customers") +
+  theme_minimal()
+
+# Histogram for Monetary
+ggplot(rfm, aes(x = Monetary)) +
+  geom_histogram(bins = 30, fill = "red", color = "black") +
+  labs(title = "Distribution of Monetary Value",
+       x = "Monetary Value (payment value)",
+       y = "Number of Customers") +
+  theme_minimal()
+
+```
+
+```{r}
+# Filter out Inf values from the RFM metrics
+rfm <- rfm %>%
+  filter(is.finite(Recency) & is.finite(Frequency) & is.finite(Monetary))
+
+# Now, you can attempt standardization again
+rfm <- rfm %>%
+  mutate(
+    RecencyStandardized = scale(Recency, center = TRUE, scale = TRUE),
+    FrequencyStandardized = scale(Frequency, center = TRUE, scale = TRUE),
+    MonetaryStandardized = scale(Monetary, center = TRUE, scale = TRUE)
+  )
+
+# Invert the Recency score since lower is better
+rfm$RecencyStandardized <- -rfm$RecencyStandardized
+
+# Calculate the composite RFM score
+rfm$RFM_Score <- rowSums(cbind(rfm$RecencyStandardized, rfm$FrequencyStandardized, rfm$MonetaryStandardized), na.rm = TRUE)
+
+# Remove any rows that might still have NA values after this process
+rfm <- na.omit(rfm)
+
+# Attempt the plot again
+ggplot(rfm, aes(x = RFM_Score)) +
+  geom_histogram(bins = 30, fill = "purple", color = "black") +
+  labs(title = "Distribution of Standardized Composite RFM Scores",
+       x = "Standardized Composite RFM Score",
+       y = "Number of Customers") +
+  theme_minimal()
+
+
+
+```
+```{r}
+summary(rfm[, c("Recency", "Frequency", "Monetary")])
+
+```
+
 
 ```{r}
 # Score customers based on quintiles
@@ -96,6 +168,54 @@ final_cust_RFM = customer_RFM_filtered %>%
   select(-RecencyScore, -FrequencyScore, -MonetaryScore)
 ```
 
+```{r}
+# Plotting the histogram for the RFM scores
+ggplot(final_cust_RFM, aes(x = RFM_avg)) +
+  geom_histogram(binwidth = 1, boundary = 0.5, fill = "blue", color = "black") +
+  scale_x_continuous(breaks = 1:5, labels = 1:5) +
+  labs(title = "Distribution of Average RFM Scores",
+       x = "RFM Score",
+       y = "Number of Customers") +
+  theme_minimal()
+
+```
+
+```{r}
+# Remove rows with NA values in any of the RFM columns
+rfm <- rfm %>%
+  filter(!is.na(Recency), !is.na(Frequency), !is.na(Monetary))
+
+# Now check if any of the RFM components have zero variance
+if(any(var(rfm$Recency, na.rm = TRUE) == 0, 
+       var(rfm$Frequency, na.rm = TRUE) == 0, 
+       var(rfm$Monetary, na.rm = TRUE) == 0)) {
+  stop("One of the RFM components has zero variance. Cannot standardize.")
+}
+
+# Since there's no zero variance, standardize the RFM components
+rfm <- rfm %>%
+  mutate(
+    RecencyStandardized = scale(Recency, center = TRUE, scale = TRUE),
+    FrequencyStandardized = scale(Frequency, center = TRUE, scale = TRUE),
+    MonetaryStandardized = scale(Monetary, center = TRUE, scale = TRUE),
+    # Create a composite RFM score
+    RFM_CompositeScore = FrequencyStandardized + MonetaryStandardized - RecencyStandardized
+  )
+
+# Check again for any non-finite values
+rfm <- rfm %>%
+  filter(complete.cases(RFM_CompositeScore))
+
+# Plotting the histogram for the composite RFM scores
+ggplot(rfm, aes(x = RFM_CompositeScore)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  labs(title = "Distribution of Composite RFM Scores",
+       x = "Composite RFM Score",
+       y = "Number of Customers") +
+  theme_minimal()
+
+
+```
 
 ```{r}
 saveRDS(final_cust_RFM, "final_cust_RFM.rds")

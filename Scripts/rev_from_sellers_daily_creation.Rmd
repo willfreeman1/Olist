@@ -43,66 +43,43 @@ rev_from_sellers <- rev_from_sellers %>%
 ```
 
 
-
-
 ```{r}
-# Calculate active SaaS subcribers
-
+library(dplyr)
 library(lubridate)
 
-# Set subscription start and end dates at first and last day of the months of first and last sales
+# Assuming 'monthly_seller_stats' has columns: month, new_sellers, lost_sellers, total_sellers_subscribed
+# And assuming a fixed daily subscription fee, for simplicity let's assume $99/month as in your example
 
-subscription_info <- rev_from_sellers %>%
-  group_by(seller_id) %>%
-  summarise(subscription_start = min(order_purchase_timestamp),
-            subscription_end = max(order_purchase_timestamp)) %>%
-  mutate(subscription_start = floor_date(subscription_start, "month"),
-         subscription_end = ceiling_date(subscription_end, "month") - days(1)) %>%
-  ungroup()
-
-# Create unique subsription info for each seller:
-
-unique_subscription_info <- subscription_info %>%
-  mutate(subscription_start = as.Date(subscription_start),
-         subscription_end = as.Date(subscription_end))
-
-# Create DF of seller acquisition and churn 
-new_sellers_monthly = unique_subscription_info %>%
-  group_by(start_month = floor_date(subscription_start, "month")) %>%
-  summarise(new_sellers = n())
-
-lost_sellers_monthly = unique_subscription_info %>%
-  group_by(end_month = floor_date(subscription_end, "month")) %>%
-  summarise(lost_sellers = n())
-
-monthly_seller_changes <- full_join(new_sellers_monthly, lost_sellers_monthly, by = c("start_month" = "end_month")) %>%
-  rename(month = start_month) %>%
-  replace_na(list(new_sellers = 0, lost_sellers = 0))
-
-monthly_seller_changes <- monthly_seller_changes %>%
+# Step 1: Directly use monthly_seller_stats for seller acquisition and churn
+monthly_seller_changes <- monthly_seller_stats %>%
+  select(month, new_sellers, lost_sellers) %>%
   mutate(net_change = new_sellers - lost_sellers)
 
-# Step 2: Expand to Daily Data
-seller_daily_sub <- unique_subscription_info %>%
-  rowwise() %>%
-  mutate(days = list(seq.Date(subscription_start, subscription_end, by = "day"))) %>%
-  unnest(days) %>%
-  mutate(daily_fee = 99 / days_in_month(days)) %>%
-  select(seller_id, days, daily_fee)
+# Step 2: Calculate the total daily subscription revenue
+# Assuming each seller pays for each day they are subscribed within a month
+# First, calculate the number of days each month in the data range
 
-# Step 3: Sum Daily Fees (without duplication)
-seller_daily_sub <- seller_daily_sub %>%
-  group_by(days) %>%
-  summarise(daily_fee = sum(daily_fee), .groups = 'drop')
+monthly_seller_stats_with_days <- monthly_seller_stats %>%
+  mutate(days_in_month = days_in_month(month),
+         daily_fee_per_seller = 99 / days_in_month)
 
-# Join subscription info back to rev_from_sellers
-full_seller_data <- rev_from_sellers %>%
-  left_join(subscription_info, by = "seller_id")
+# Assuming total_sellers_subscribed represents the count of active subscriptions at the end of each month,
+# calculate the total daily subscription fee revenue for the SaaS provider
+monthly_revenue_from_subs <- monthly_seller_stats_with_days %>%
+  mutate(monthly_revenue = total_sellers_subscribed * daily_fee_per_seller * days_in_month)
+
+# Optional: Summarize to get total revenue over the period
+total_revenue_from_subs <- sum(monthly_revenue_from_subs$monthly_revenue)
+
+# Now, you can compare this subscription revenue to the percentage of seller sales revenue 
+# the SaaS provider takes, assuming you have that revenue calculated elsewhere in `rev_from_sellers`
+
+# Note: This approach assumes a constant subscription rate across the period and does not account for partial months
+# for new sellers joining or sellers leaving partway through a month. Adjustments might be necessary for a precise calculation.
 
 ```
 
 ```{r}
-
 # Since only one timestamp per order we can aggregate main DF by order_id
 rev_from_sellers_byorder_delivered <- rev_from_sellers %>%
   filter(order_status == "delivered") %>%
@@ -122,51 +99,114 @@ rev_from_sellers_byorder_delivered <- rev_from_sellers %>%
     old_seller_freight = sum(ifelse(seller_status == "old", price, 0)),
     olist_rev_share = (total_sales * 0.2)) %>%
     ungroup()
-  
-# Make aggregated DF daily
-rev_from_sellers_daily <- rev_from_sellers_byorder_delivered %>%
-  group_by(order_purchase_timestamp = floor_date(order_purchase_timestamp, "day")) %>%
-  summarise(
-    total_sales = sum(total_sales),
-    total_freight_value = sum(total_freight_value),
-    total_units_ordered = sum(total_units_ordered),
-    unique_sellers = sum(unique_sellers),
-    unique_products= sum(unique_products),
-    new_sellers = sum(new_sellers),
-    old_sellers = sum(old_sellers),
-    new_seller_sales = sum(new_seller_sales),
-    new_seller_freight = sum(new_seller_freight),
-    old_seller_sales = sum(old_seller_sales),
-    old_seller_freight = sum(old_seller_freight),
-    olist_rev_share = sum(olist_rev_share)
-  )
+```
 
-# Merge subscription DF with main daily DF
-rev_from_sellers_daily <- rev_from_sellers_daily %>%
-  left_join(seller_daily_sub, by = c("order_purchase_timestamp" = "days"))
+```{r}
+# Assuming monthly_seller_stats_with_days is your DataFrame and is ready for use
+library(dplyr)
+library(tidyr)
+library(lubridate)
 
-# Create olist_total_rev column
-rev_from_sellers_daily <- rev_from_sellers_daily %>%
-  mutate(olist_total_rev = olist_rev_share + coalesce(daily_fee, 0))
+# Generate a sequence of dates for each month and calculate daily subscription revenue
+daily_subs_revenue <- monthly_seller_stats_with_days %>%
+  rowwise() %>%
+  mutate(days = list(seq(as.Date(month), 
+                         as.Date(month) + days_in_month(month) - 1, 
+                         by = "day"))) %>%
+  unnest(days) %>%
+  mutate(daily_subscription_revenue = total_sellers_subscribed * daily_fee_per_seller) %>%
+  select(days, daily_subscription_revenue)
 
+# Since you're calculating the daily subscription revenue, ensure there are no duplicates
+daily_subs_revenue <- daily_subs_revenue %>%
+  group_by(days) %>%
+  summarise(daily_subscription_revenue = sum(daily_subscription_revenue), .groups = 'drop')
 
 ```
 
 ```{r}
-# Create subscription fee and revenue share breakdown by old vs new sellers
+# Assuming rev_from_sellers_byorder_delivered is prepared and includes daily sales data
+# First, ensure order_purchase_timestamp is in Date format
+rev_from_sellers_byorder_delivered$order_purchase_timestamp <- as.Date(rev_from_sellers_byorder_delivered$order_purchase_timestamp)
 
+# Aggregate sales data to daily, if not already
+rev_from_sellers_daily <- rev_from_sellers_byorder_delivered %>%
+  group_by(order_purchase_timestamp) %>%
+  summarise(total_sales = sum(total_sales),
+            total_freight_value = sum(total_freight_value),
+            olist_rev_share = sum(olist_rev_share)) %>%
+  ungroup()
+
+# Merge daily subscription revenue
 rev_from_sellers_daily <- rev_from_sellers_daily %>%
-  mutate(
-    olist_rev_new_sellers = (new_seller_sales * 0.2),
-    olist_rev_old_sellers = (old_seller_sales * 0.2),
-    olist_fee_new_sellers = (daily_fee / (new_sellers + old_sellers)) * new_sellers,
-    olist_fee_old_sellers = (daily_fee / (new_sellers + old_sellers)) * old_sellers
-  )
+  left_join(daily_subs_revenue, by = c("order_purchase_timestamp" = "days"))
+
+# Calculate total daily revenue for Olist combining subscription and sales revenue
+rev_from_sellers_daily <- rev_from_sellers_daily %>%
+  mutate(olist_total_rev = olist_rev_share + coalesce(daily_subscription_revenue, 0))
+
+
+print(rev_from_sellers_daily)
+
 ```
+
+```{r}
+library(dplyr)
+library(zoo)
+
+# Ensure order_purchase_timestamp is in Date format
+rev_from_sellers_daily$order_purchase_timestamp <- as.Date(rev_from_sellers_daily$order_purchase_timestamp)
+
+# Calculate 10-day moving averages for olist_rev_share and daily_subscription_revenue
+rev_from_sellers_daily <- rev_from_sellers_daily %>%
+  arrange(order_purchase_timestamp) %>%
+  mutate(
+    olist_rev_share_10DMA = rollmean(olist_rev_share, 10, fill = NA, align = "right"),
+    daily_subscription_revenue_10DMA = rollmean(daily_subscription_revenue, 10, fill = NA, align = "right")
+  )
+
+# Display the updated DataFrame
+print(rev_from_sellers_daily)
+
+```
+
+```{r}
+# Calc 10D MA and plot
+
+
+library(ggplot2)
+library(tidyr)
+
+# Reshape the data into a long format
+rev_split <- rev_from_sellers_daily %>%
+  select(order_purchase_timestamp, olist_rev_share_10DMA, daily_subscription_revenue_10DMA) %>%
+  pivot_longer(-order_purchase_timestamp, names_to = "Revenue Type", values_to = "Amount")
+
+# Plotting the stacked area chart
+ggplot(rev_split, aes(x = order_purchase_timestamp, y = Amount, fill = `Revenue Type`)) +
+  geom_area(position = "stack", alpha = 0.6) +
+  scale_fill_manual(values = c("olist_rev_share_10DMA" = "lightcoral", 
+                               "daily_subscription_revenue_10DMA" = "steelblue")) +
+  labs(title = "10-Day Moving Averages of Olist Revenue Share and Daily Subscription Revenue",
+       x = "Date",
+       y = "10-Day Moving Average (DMA)",
+       fill = "Revenue Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+saveRDS(rev_split, "rev_split.rds")
+
+
+```
+
 
 
 
 ```{r}
 saveRDS(rev_from_sellers_daily, "..//Data//rev_from_sellers_daily.rds")
+```
+
+```{r}
+getwd()
 ```
 

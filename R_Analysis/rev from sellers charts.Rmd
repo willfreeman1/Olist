@@ -1,6 +1,6 @@
 ```{r}
 # Tests for Olist dashboard - revenue from sellers
-getwd()
+# getwd()
 ```
 
 
@@ -92,10 +92,42 @@ p
 ```
 
 ```{r}
+library(ggplot2)
+
+# Assuming 'historical_data' and 'forecast_data' are preloaded
+
+# Combine the historical and forecast data for plotting
+# Note: 'yhat' represents forecast values similar to 'rolling_mean' in historical data
+combined_data <- rbind(historical_data %>%
+                         select(ds, rolling_mean, type) %>%
+                         rename(y = rolling_mean),
+                       forecast_data %>%
+                         select(ds, yhat, type) %>%
+                         rename(y = yhat))
+
+# Plot
+p <- ggplot() +
+  geom_line(data = combined_data, aes(x = ds, y = y, color = type), na.rm = TRUE) +
+  geom_ribbon(data = forecast_data, aes(x = ds, ymin = yhat_lower, ymax = yhat_upper), alpha = 0.2, fill = "grey80") +
+  labs(title = "Olist Revenue Forecast",
+       x = "Date", y = "Revenue (BRL)",
+       color = "Type") +
+  theme_gray()
+
+p
+
+
+```
+```{r}
+str(forecast_data)
+```
+
+
+```{r}
 # SaaS rev vs sales percentage
 
 # Create moving avg for both revenue sources
-window_size = 5
+window_size = 10
 
 rev_split <- rev_from_sellers_daily_timecut %>%
   arrange(order_purchase_timestamp) %>%
@@ -109,13 +141,39 @@ p <- ggplot(rev_split, aes(x = order_purchase_timestamp)) +
   geom_area(aes(y = olist_rev_share_ma, fill = "20% Revenue Share"), position = "stack") +
   geom_area(aes(y = daily_fee_ma, fill = "Subscription Revenue"), position = "stack") +
   scale_fill_manual(values = c("20% Revenue Share" = "blue", "Subscription Revenue" = "green")) +
-  labs(title = "5-Day Moving Average of Olist Revenue Streams",
+  labs(title = "10-Day Moving Average of Olist Revenue Streams",
        x = "Date", y = "Revenue (BRL)", fill = "Revenue Type") +
-  ylim(0, 15000)
+  ylim(0, 15000) +
+  theme_gray()
 
 p
 
 ```
+
+```{r}
+library(zoo) # For rollmean()
+
+# Assuming rev_from_sellers_daily_timecut is already loaded and prepared
+
+# Calculate the 10-day moving averages
+rev_subs_sales <- rev_from_sellers_daily_timecut %>%
+  arrange(order_purchase_timestamp) %>%
+  mutate(
+    olist_rev_share_ma = rollmean(olist_rev_share, 10, align = "right", fill = NA),
+    daily_fee_ma = rollmean(daily_fee, 10, align = "right", fill = NA)
+  )
+
+# Save the prepared dataframe for easy reuse
+saveRDS(rev_subs_sales, "rev_subs_sales.rds")
+
+```
+
+```{r}
+str(rev_split)
+print(range(rev_subs_sales$order_purchase_timestamp))
+
+```
+
 
 ```{r}
 # Show number of sellers subscribed
@@ -130,9 +188,9 @@ monthly_seller_changes_filtered <- monthly_seller_changes %>%
 
 ggplot(monthly_seller_changes_filtered, aes(x = month)) +
   geom_bar(aes(y = new_sellers, fill = "New Sellers"), stat = "identity") +
-  geom_bar(aes(y = -lost_sellers, fill = "Old Sellers"), stat = "identity") +
+  geom_bar(aes(y = -lost_sellers, fill = "Churned Sellers"), stat = "identity") +
   geom_line(aes(y = net_change, group = 1), color = "blue") +
-  scale_fill_manual(values = c("New Sellers" = "green", "Old Sellers" = "red")) +
+  scale_fill_manual(values = c("New Sellers" = "green", "Churned Sellers" = "red")) +
   labs(title = "Monthly Seller Acquisition vs Churn (Jan 2017 - Jul 2018)",
        x = "Month",
        y = "Number of Sellers",

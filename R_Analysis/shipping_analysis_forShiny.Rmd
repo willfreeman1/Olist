@@ -188,7 +188,6 @@ unique(df_shipping_analysis$customer_state)
 ```{r}
 # Map customer state and seller state to their corresponding regions
 
-# Assuming the dataframe is df
 library(dplyr)
 
 # Mapping of state codes to regions, state codes are uppercase as per the mapping definition
