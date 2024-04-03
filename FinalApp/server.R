@@ -37,18 +37,34 @@ function(input, output, session) {
     # Check for "Olist & Seller Performance Index" chart
     if (input$dashboardType == "Headline Data" && input$chartType == "Olist & Seller Performance Index") {
       print("Filtering data for Olist & Seller Performance Index chart.")
-      filtered_data <- index_summary_df %>%
-        filter(month >= input$dateRange[1] & month <= input$dateRange[2])
+      filtered_data <- rev_split %>%
+        filter(order_purchase_date >= input$dateRange[1] & order_purchase_date <= input$dateRange[2])
       print(paste("Number of rows in filtered data:", nrow(filtered_data)))
       
-      p <- ggplot(filtered_data, aes(x = month, y = Value, color = Category)) +
-        geom_line(linewidth = 1) +
-        labs(title = "Olist & Subscriber Performance",
-             x = "Month", y = "Index (Base 100)", color = "Legend Title") +
-        custom_theme() +
-        theme(axis.text.x = element_text(hjust = 1))
-      p <- apply_pastel1_palette(p, type = "colour")
+      # Plot the chart
+      p <- ggplot(filtered_data, aes(x = order_purchase_date)) +
+        geom_line(aes(y = daily_subscription_revenue_ma30, color = "Daily Subscription Revenue")) +
+        geom_line(aes(y = olist_rev_share_ma30, color = "Olist Revenue Share")) +
+        geom_line(aes(y = total_sellers_subscribed_ma30, color = "Total Sellers Subscribed")) +
+        geom_line(aes(y = seller_revenue_index_ma30, color = "Seller Revenue Index")) +
+        scale_color_manual(values = c("Daily Subscription Revenue" = "red", 
+                                      "Olist Revenue Share" = "blue", 
+                                      "Total Sellers Subscribed" = "green",
+                                      "Seller Revenue Index" = "black")) +
+        labs(title = "Olist & Seller Performance Index",
+             x = "Order Purchase Date", y = "Metrics") +
+        custom_theme() +  # Apply custom theme
+        theme(
+          plot.title = element_text(size = 24, hjust = 0.5, face = "bold"),  # Adjust title size and alignment
+          legend.text = element_text(size = 18),  # Increase legend text size
+          legend.title = element_blank()  # Remove legend title
+        ) +
+        ggtitle("Olist & Seller Performance Index Comparison")  # Add chart title
+      
+      p <- apply_pastel1_palette(p, type = "colour")  # Apply color palette
+      
     }
+    
     
     # Check for "Revenue with Forecast" chart
     if (input$dashboardType == "Headline Data" && input$chartType == "Revenue with Forecast") {
@@ -91,9 +107,9 @@ function(input, output, session) {
     # Check for "Subscriptions vs Sales" chart
     if (input$dashboardType == "Headline Data" && input$chartType == "Subscriptions vs Sales") {
       filtered_data <- rev_split %>%
-        filter(order_purchase_timestamp >= input$dateRange[1] & order_purchase_timestamp <= input$dateRange[2])
+        filter(order_purchase_date >= input$dateRange[1] & order_purchase_date <= input$dateRange[2])
       # Recreate the stacked area chart
-      p <- ggplot(filtered_data, aes(x = order_purchase_timestamp, y = Amount, fill = `Revenue Type`)) +
+      p <- ggplot(filtered_data, aes(x = order_purchase_date, y = Amount, fill = `Revenue Type`)) +
         geom_area(position = "stack", alpha = 0.6) +
         scale_fill_manual(values = c("olist_rev_share_10DMA" = "lightcoral", 
                                      "daily_subscription_revenue_10DMA" = "steelblue")) +

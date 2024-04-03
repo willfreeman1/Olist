@@ -179,6 +179,9 @@ print(monthly_seller_stats)
 
 
 ```
+```{r}
+summary(monthly_seller_stats)
+```
 
 
 ```{r}
