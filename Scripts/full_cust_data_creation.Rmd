@@ -678,6 +678,17 @@ saveRDS(orders_items_customers_metrics_byzip_geo,"orders_items_customers_metrics
 ```{r}
 # Create muni level custmetrics DF
 
+# First calc weighted products for later weight avgs
+orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip_geo %>%
+  mutate(
+    weighted_prod_delivery_time = avg_delivery_time * total_orders,
+    weighted_prod_expected_delivery_time = avg_expected_delivery_team * total_orders,
+    weighted_prod_additional_delivery_time = avg_additional_delivery_time * total_orders,
+    weighted_prod_late_delivery_percent = avg_late_delivery_percent * total_orders
+    # Add similar calculations for any other weighted averages
+  )
+
+
 # Group by muni and aggregate data
 orders_items_customers_metrics_muni_geo <- orders_items_customers_metrics_byzip_geo %>%
   group_by(code_muni) %>%
@@ -686,10 +697,10 @@ orders_items_customers_metrics_muni_geo <- orders_items_customers_metrics_byzip_
     total_orders = sum(total_orders, na.rm = TRUE),
     total_freight = sum(total_freight, na.rm = TRUE),
     total_unique_customers = sum(total_unique_customers, na.rm = TRUE),
-    avg_delivery_time = sum(avg_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
-    avg_expected_delivery_time = sum(avg_expected_delivery_team * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
-    avg_additional_delivery_time = sum(avg_additional_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
-    avg_late_delivery_percent = sum(avg_late_delivery_percent * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_delivery_time = sum(weighted_prod_delivery_time, na.rm = TRUE) / total_orders,
+    avg_expected_delivery_time = sum(weighted_prod_expected_delivery_time, na.rm = TRUE) / total_orders,
+    avg_additional_delivery_time = sum(weighted_prod_additional_delivery_time, na.rm = TRUE) / total_orders,
+    avg_late_delivery_percent = sum(weighted_prod_late_delivery_percent, na.rm = TRUE) / total_orders,
     total_repeat_customers = sum(total_repeat_customers, na.rm = TRUE),
     total_review_score = sum(total_review_score, na.rm = TRUE),
     count_reviews = sum(count_reviews, na.rm = TRUE),
@@ -729,10 +740,10 @@ orders_items_customers_metrics_state_geo <- orders_items_customers_metrics_byzip
     total_orders = sum(total_orders, na.rm = TRUE),
     total_freight = sum(total_freight, na.rm = TRUE),
     total_unique_customers = sum(total_unique_customers, na.rm = TRUE),
-    avg_delivery_time = sum(avg_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
-    avg_expected_delivery_time = sum(avg_expected_delivery_team * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
-    avg_additional_delivery_time = sum(avg_additional_delivery_time * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
-    avg_late_delivery_percent = sum(avg_late_delivery_percent * total_orders, na.rm = TRUE) / sum(total_orders, na.rm = TRUE),
+    avg_delivery_time = sum(weighted_prod_delivery_time, na.rm = TRUE) / total_orders,
+    avg_expected_delivery_time = sum(weighted_prod_expected_delivery_time, na.rm = TRUE) / total_orders,
+    avg_additional_delivery_time = sum(weighted_prod_additional_delivery_time, na.rm = TRUE) / total_orders,
+    avg_late_delivery_percent = sum(weighted_prod_late_delivery_percent, na.rm = TRUE) / total_orders,
     total_repeat_customers = sum(total_repeat_customers, na.rm = TRUE),
     total_review_score = sum(total_review_score, na.rm = TRUE),
     count_reviews = sum(count_reviews, na.rm = TRUE),
@@ -748,7 +759,7 @@ orders_items_customers_metrics_state_geo <- orders_items_customers_metrics_state
   )
 
 
-# Join muni geometry
+# Join state geometry
 state_geom <- all_states_brazil %>%
   select(code_state,name_state, geom)
 
@@ -955,9 +966,8 @@ leaflet(custmetrics_zip_geo) %>%
             fillOpacity = 0.7,
             bringToFront = TRUE
         ),
-        label = ~paste("Zip Code:", zip_code_prefix, "<br>",
-                       "Total Sales:", formatC(expm1(total_sales)), # Inverse of log1p for display
-                       " (Log Scale)"),
+        label = ~paste("Zip Code:", zip_code_prefix,
+                       "Total Sales: R$", formatC(total_sales, format = "f", big.mark = ".", decimal.mark = ",", digits = 2)),
         labelOptions = labelOptions(
             style = list("font-weight" = "normal", padding = "3px 8px"),
             textsize = "15px",
@@ -968,8 +978,14 @@ leaflet(custmetrics_zip_geo) %>%
         position = "bottomright",
         pal = pal,
         values = ~log1p(total_sales), # Apply log transformation here as well
-        title = "Total Sales (Log Scale)",
-        labFormat = labelFormat(transform = function(x) expm1(x)), # Inverse of log1p for legend labels
+        title = "Total Sales",
+        labFormat = labelFormat(transform = function(x) {
+            if (is.numeric(x)) {
+                formatC(expm1(x), format = "f", big.mark = ".", decimal.mark = ",", digits = 2)
+            } else {
+                as.character(x)
+            }
+        }), # Inverse of log1p for legend labels
         opacity = 0.7
     )
 
@@ -1082,7 +1098,7 @@ leaflet(custmetrics_state_geo) %>%
             weight = 3,
             color = "#666666",
             dashArray = "",
-            fillOpacity = 0.7,
+            fillOpacity = 0.4,
             bringToFront = TRUE
         ),
         label = ~paste("State:", name_state , "<br>",
@@ -1104,6 +1120,41 @@ leaflet(custmetrics_state_geo) %>%
     )
 
 
+```
+
+```{r}
+ggplot(custmetrics_zip_geo, aes(x = total_orders)) +
+  geom_histogram(binwidth = 10, fill = "blue", color = "black") +
+  labs(
+    title = "Histogram of Total Sales",
+    x = "Total Sales",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(labels = scales::comma)  # Format the x-axis labels without scientific notation
+
+summary(custmetrics_zip$total_repeat_customers)
+
+
+```
+
+```{r}
+custmetrics_state_geo <- custmetrics_state_geo %>%
+  st_as_sf(custmetrics_state_geo)
+
+custmetrics_muni_geo <- custmetrics_muni_geo %>%
+  st_as_sf(custmetrics_muni_geo)
+
+custmetrics_zip_geo <- custmetrics_zip_geo %>%
+  st_as_sf(custmetrics_zip_geo)
+
+getwd()
+
+saveRDS(custmetrics_state_geo,"..//muni_map_test//custmetrics_state_geo.rds")
+saveRDS(custmetrics_muni_geo,"..//muni_map_test//custmetrics_muni_geo.rds")
+saveRDS(custmetrics_zip_geo,"..//muni_map_test//custmetrics_zip_geo.rds")
+
+str(custmetrics_muni_geo)
 ```
 
 
@@ -1157,6 +1208,17 @@ orders_items_customers_metrics_byzip_geo <- orders_items_customers_metrics_byzip
 ```
 
 ```{r}
+if (interactive()) {
+  library(rstudioapi)
+  rstudioapi::versionInfo()$version
+}
+
+R.version.string
+
+if (interactive()) {
+  library(leaflet)
+  packageVersion("leaflet")
+}
 
 ```
 
