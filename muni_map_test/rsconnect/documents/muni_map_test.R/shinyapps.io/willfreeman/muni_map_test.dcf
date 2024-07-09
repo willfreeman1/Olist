@@ -1,0 +1,12 @@
+name: muni_map_test
+title: muni_map_test
+username: willfreeman
+account: willfreeman
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 10853295
+bundleId: 8091864
+url: https://willfreeman.shinyapps.io/muni_map_test/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

@@ -1,0 +1,32 @@
+```{r}
+# SET UP DATAFRAMES FOR LEAFLET TO CREATE SHINY APP WITH ALL DATA AND ALL LEVELS
+getwd()
+final_state_geom_valid = readRDS("Scripts//final_state_geom_valid.rds")
+
+# Create zip-level DF to match nuni and state DFs
+
+library(dplyr)
+# Rename and reorder columns in final_geo_df to create final_geo_df_leaflet
+final_geo_df_leaflet <- final_geo_df %>%
+  rename(
+    code_geo = zip_code_prefix,
+    geo_lat = sell_geo_lat,
+    geo_lng = sell_geo_lng,
+    # Include other renamings as necessary
+  ) %>%
+  select(
+    code_geo, year_month, geo_lat, geo_lng,
+    # Add other columns that match the structure of final_muni_geom_valid and final_state_geom_valid
+    # Assuming these columns are present in final_geo_df and need to be included
+    customer_city, customer_state, cust_zip_incomepc, total_cust_month,
+    cust_sales_month, cust_revenue_month, cust_zip_incomepc, new_cust_month,
+    returning_cust_month, total_cust_cum, cust_sales_cum, cust_revenue_cum,
+    avg_clv, seller_city, seller_state, sell_zip_incomepc, active_sellers_month,
+    new_sellers_month, old_sellers_month, seller_sales_month, seller_revenue_month,
+    active_sellers_cum, seller_sales_cum, seller_revenue_cum, total_seller_lv, avg_seller_lv
+  )
+getwd()
+saveRDS(final_geo_df_leaflet, "final_geo_df_leaflet.rds")
+
+```
+

@@ -1,0 +1,12 @@
+name: Denis_version
+title: Denis_version
+username: willfreeman
+account: willfreeman
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 10992089
+bundleId: 8252561
+url: https://willfreeman.shinyapps.io/Denis_version/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

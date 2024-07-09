@@ -536,3 +536,7 @@ ggplot(monthly_ship_share, aes(x = year_month, y = avg_ship_share)) +
 saveRDS(df_shipping_analysis, "df_shipping_analysis.rds")
 ```
 
+```{r}
+str(df_shipping_analysis)
+```
+

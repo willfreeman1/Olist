@@ -1140,3 +1140,7 @@ ggplot(avg_sellers_per_product_monthly, aes(x = month, y = avg_sellers)) +
 saveRDS(geo_df_delivered, "geo_df_delivered.rds")
 ```
 
+```{r}
+str(geo_df_delivered)
+```
+

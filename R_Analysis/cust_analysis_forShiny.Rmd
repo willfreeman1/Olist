@@ -1,0 +1,232 @@
+```{r}
+# Customer charts for Shiny
+```
+
+```{r}
+# Get DF
+cust_analysis_df <- readRDS("C:/Users/willf/OneDrive/Documents/NYDSA/R/Olist/Data/geo_df_delivered_clean_census.rds")
+```
+
+```{r}
+# New vs Returning Customers
+library(dplyr)
+library(lubridate)
+library(sf)
+
+
+ # Drop the geometry for sorting and manipulation
+geo_df_no_geom <- st_drop_geometry(cust_analysis_df)
+
+# Now, perform the arrange without the geometry column causing issues
+geo_df_no_geom <- geo_df_no_geom %>%
+  arrange(customer_unique_id, order_purchase_timestamp)
+
+# Add the geometry back if needed for other operations
+# geo_df_no_geom$geometry <- geo_df_delivered_clean_census$geometry
+
+# Flag the first purchase of each customer as new, subsequent purchases as repeat
+geo_df_no_geom <- geo_df_no_geom %>%
+  group_by(customer_unique_id) %>%
+  mutate(customer_type = if_else(row_number() == 1, "New", "Repeat")) %>%
+  ungroup()
+
+# If you need to convert it back to an sf object for spatial operations:
+# geo_df_final <- st_as_sf(geo_df_no_geom)
+
+monthly_customer_type_counts <- geo_df_no_geom %>%
+  mutate(month = floor_date(order_purchase_timestamp, "month")) %>%
+  group_by(month, customer_type) %>%
+  summarise(count = n(), .groups = 'drop')
+
+library(ggplot2)
+
+ggplot(monthly_customer_type_counts, aes(x = month, y = count, color = customer_type)) +
+  geom_line() +
+  labs(title = "New vs Repeat Customers Over Time",
+       x = "Month",
+       y = "Number of Customers",
+       color = "Customer Type") +
+  theme_minimal()
+
+```
+
+```{r}
+saveRDS(monthly_customer_type_counts, "monthly_customer_type_counts.rds")
+
+```
+
+
+```{r}
+# Urban vs Rural orders
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+# Assuming order_purchase_timestamp is already in datetime format. If not, convert it:
+# geo_df_delivered_clean_census$order_purchase_timestamp <- ymd_hms(geo_df_delivered_clean_census$order_purchase_timestamp)
+
+# Aggregate revenue by month and cust_zone
+monthly_revenue_by_zone <- cust_analysis_df %>%
+  mutate(month = floor_date(order_purchase_timestamp, "month")) %>%
+  group_by(month, cust_zone) %>%
+  summarise(revenue = sum(price, na.rm = TRUE), .groups = 'drop')
+
+# Ensure 'cust_zone' only contains "URBANO" or "RURAL"
+monthly_revenue_by_zone <- monthly_revenue_by_zone %>%
+  filter(cust_zone %in% c("URBANO", "RURAL"))
+
+# Plot
+ggplot(monthly_revenue_by_zone, aes(x = month, y = revenue, color = cust_zone)) +
+  geom_line() +
+  labs(title = "Monthly Revenue: Urban vs Rural Customers",
+       x = "Month",
+       y = "Revenue",
+       color = "Customer Area") +
+  theme_minimal()
+
+
+```
+
+```{r}
+saveRDS(monthly_revenue_by_zone, "monthly_revenue_by_zone.rds")
+```
+
+
+```{r}
+# Top 10 citites in revenue as percentage of total
+
+library(dplyr)
+library(ggplot2)
+
+# Step 1 & 2: Calculate total revenue per city and for the dataset
+city_revenue <- cust_analysis_df %>%
+  group_by(customer_city) %>%
+  summarise(total_revenue = sum(price, na.rm = TRUE)) %>%
+  ungroup()
+
+total_revenue_dataset <- sum(city_revenue$total_revenue, na.rm = TRUE)
+
+# Step 3: Calculate percentage of total revenue for each city
+city_revenue <- city_revenue %>%
+  mutate(percentage_of_total = (total_revenue / total_revenue_dataset) * 100)
+
+# Step 4: Select top 10 cities by revenue percentage
+top_cities <- city_revenue %>%
+  arrange(desc(percentage_of_total)) %>%
+  slice(1:10)
+
+# Step 5: Plot the data
+ggplot(top_cities, aes(x = reorder(customer_city, percentage_of_total), y = percentage_of_total)) +
+  geom_bar(stat = "identity", orientation = "x") +
+  coord_flip() + # Makes the bar chart horizontal
+  labs(title = "Top 10 Customer Cities by Revenue Percentage",
+       x = "Customer City",
+       y = "Percentage of Total Revenue (%)") +
+  theme_minimal()
+
+```
+
+```{r}
+# Plot zip code income pc vs zip code revenue
+library(dplyr)
+library(ggplot2)
+
+# Aggregate data by customer_zip_code_prefix
+zip_code_revenue <- cust_analysis_df %>%
+  group_by(customer_zip_code_prefix) %>%
+  summarise(total_revenue = sum(price, na.rm = TRUE), 
+            income_per_capita = first(cust_incomepc)) %>%
+  ungroup()
+
+# Calculate Pearson correlation
+correlation_score <- cor(zip_code_revenue$income_per_capita, zip_code_revenue$total_revenue, use = "complete.obs", method = "pearson")
+
+# Print the correlation score
+print(correlation_score)
+
+ggplot(zip_code_revenue, aes(x = income_per_capita, y = total_revenue)) +
+  geom_point(alpha = 0.5) + # Use alpha to adjust point opacity if many points overlap
+  labs(title = "Income Per Capita vs Total Revenue by Customer Zip Code",
+       x = "Income Per Capita",
+       y = "Total Revenue") +
+  theme_minimal() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") + # Adds a linear regression line without confidence interval
+  annotate("text", x = Inf, y = Inf, label = paste("Pearson Correlation: ", round(correlation_score, 2)), hjust = 1.1, vjust = 2, size = 5)
+
+
+```
+
+```{r}
+saveRDS(cust_analysis_df, "cust_analysis_df.rds")
+```
+
+
+```{r}
+df_review_analysis = ord_cust_pay_geo_prod_rev
+```
+
+```{r}
+# Calc order delivery time
+
+# Convert both columns to Date format (ignoring the time the second column)
+df_review_analysis$order_purchase_timestamp <- as.Date(df_review_analysis$order_purchase_timestamp)
+df_review_analysis$order_delivered_customer_date <- as.Date(df_review_analysis$order_delivered_customer_date)
+
+# Calc difference in days
+df_review_analysis$order_delivery_days <- df_review_analysis$order_delivered_customer_date - df_review_analysis$order_purchase_timestamp
+
+# Convert difftime to numeric:
+df_review_analysis$order_delivery_days <- as.numeric(df_review_analysis$order_delivery_days)
+
+```
+
+```{r}
+# Plot review score vs delivery days
+
+library(ggplot2)
+
+# Assuming df_review_analysis is your data frame
+ggplot(df_review_analysis, aes(x = order_delivery_days, y = review_score)) +
+  geom_point(alpha = 0.5) +  # Use alpha to adjust point opacity if there are many points
+  labs(title = "Relationship between Order Delivery Days and Review Score",
+       x = "Order Delivery Days",
+       y = "Review Score") +
+  theme_minimal()
+
+```
+
+```{r}
+# Plot mean and median delivery days per review score
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Assuming df_review_analysis is your data frame
+# Calculate mean and median delivery days for each review score
+delivery_review_df <- df_review_analysis %>%
+  group_by(review_score) %>%
+  summarise(
+    Mean_Delivery_Days = mean(order_delivery_days, na.rm = TRUE),
+    Median_Delivery_Days = median(order_delivery_days, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = c(Mean_Delivery_Days, Median_Delivery_Days), 
+               names_to = "Statistic", 
+               values_to = "Days")
+
+# Plotting
+ggplot(delivery_review_df, aes(x = review_score, y = Days, fill = Statistic)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(title = "Mean and Median Delivery Days per Review Score",
+       x = "Review Score",
+       y = "Delivery Days",
+       fill = "Metric") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Pastel1")
+
+
+```
+
+```{r}
+saveRDS(delivery_review_df, "delivery_review_df.rds")
+```
+

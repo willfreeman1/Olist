@@ -1,0 +1,72 @@
+```{r}
+# Join seller LTV to full seller data
+
+# First create DF of just seller id and ltv
+library(dplyr)
+seller_LTV_df = seller_map_df%>%
+  select(seller_id, seller_LTV)
+
+# Perform the join
+seller_features_LTV <- seller_features_df %>%
+  left_join(seller_LTV_df, by = "seller_id")
+
+}
+
+```
+
+```{r}
+n_distinct(full_seller_data_LTV$product_category_name)
+
+number_of_sellers <- seller_features_LTV %>%
+  filter(category_1 == "computers") %>%
+  summarise(count = n_distinct(seller_id)) %>%
+  pull(count)
+
+number_of_sellers
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Step 1: Calculate mean seller_LTV for each product_category_name and select top 10
+category_means <- seller_features_LTV %>%
+  group_by(category_1) %>%
+  summarize(mean_seller_LTV = mean(seller_LTV, na.rm = TRUE)) %>%
+  arrange(desc(mean_seller_LTV))
+
+top_categories <- head(category_means, 25)$category_1
+
+# Step 2: Modify the dataframe to include 'Other' category
+seller_features_LTV_cats <- seller_features_LTV %>%
+  mutate(category_with_other = ifelse(category_1 %in% top_categories, 
+                                      category_1, 
+                                      "Other"))
+
+# Step 3: Create box plot
+ggplot(seller_features_LTV_cats, aes(x = category_with_other, y = seller_LTV)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Seller LTV by Product Category (Top 10 and Others)",
+       x = "Product Category",
+       y = "Seller LTV")
+
+```
+
+```{r}
+# Check for correlations with seller_LTV
+
+library(ggplot2)
+
+# Assuming seller_map_df has columns unique_products_sold and seller_LTV
+# Calculate correlation coefficient
+cor_coeff <- cor(seller_features_LTV$avg_price, seller_features_LTV$seller_LTV, use = "complete.obs")
+
+# Create the plot
+ggplot(seller_features_LTV, aes(x = avg_price, y = seller_LTV)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add best fit line without standard error
+  annotate("text", x = Inf, y = Inf, label = paste("Correlation: ", round(cor_coeff, 2)), 
+           hjust = 1.1, vjust = 1.1, size = 4, color = "blue")  # Annotate with correlation
+```
+

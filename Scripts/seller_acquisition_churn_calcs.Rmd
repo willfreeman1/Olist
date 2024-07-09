@@ -180,7 +180,90 @@ print(monthly_seller_stats)
 
 ```
 ```{r}
-summary(monthly_seller_stats)
+str(monthly_seller_stats)
+```
+```{r}
+# Plot total sellers subscribed
+# Adjust start_date and end_date if needed
+start_date <- as.Date("2017-01-01")
+end_date <- as.Date("2018-07-31")
+
+# Filter the dataframe to the specified date range
+monthly_seller_stats_filtered <- monthly_seller_stats %>%
+  filter(month >= start_date & month <= end_date)
+
+ggplot(monthly_seller_stats_filtered, aes(x = month)) +
+  geom_line(aes(y=total_sellers_subscribed)) +
+  labs(title = "Total Sellers Subscribed to Olist", x = "Month", y = "Number of Sellers") +
+  theme_minimal()
+```
+
+```{r}
+# Import seller revenue data 
+order_payments = read.csv("../data/olist_order_payments_dataset.csv")
+
+delivered_orders = orders %>%
+  filter(order_status == "delivered")
+
+delivered_orders_payments = delivered_orders %>%
+  left_join(order_payments, by = "order_id")
+
+R1_rev_prep = delivered_orders_payments %>%
+  group_by(order_id) %>%
+  summarise(revenue = sum(payment_value), order_purchase_timestamp = first(order_purchase_timestamp))
+
+R1_rev_prep$order_purchase_timestamp = as.Date(R1_rev_prep$order_purchase_timestamp)
+
+R1_rev_prep_monthly = R1_rev_prep %>%
+  mutate(
+    year = year(order_purchase_timestamp),
+    month = month(order_purchase_timestamp)
+  )
+
+R1_rev_monthly = R1_rev_prep_monthly %>%
+  group_by(year, month) %>%
+  summarise(monthly_revenue = sum(revenue))
+
+R1_rev_monthly$date = as.Date(paste(R1_rev_monthly$year, sprintf("%02d", R1_rev_monthly$month), "1", sep = "-"))
+
+format_brl = function(x){
+  paste("R$", formatC(x, format = "f", big.mark = ".", decimal.mark = ",", digits = 2))
+}
+
+str(R1_rev_monthly)
+```
+```{r}
+# Plot seller revenue data against total sellers subscribed
+# Filter R1_rev_monthly for dates between January 2017 and August 2018
+R1_rev_filtered <- R1_rev_monthly %>%
+  filter(date >= as.Date("2017-01-01") & date <= as.Date("2018-07-31"))
+
+# Determine the range for the second Y axis
+# This is a manual step and depends on the relationship between the two measures
+# The example below assumes the ranges are similar; adjust the trans argument as needed
+max_sellers <- max(monthly_seller_stats_filtered$total_sellers_subscribed, na.rm = TRUE)
+max_revenue <- max(R1_rev_filtered$monthly_revenue, na.rm = TRUE)
+transformation_factor <- max_revenue / max_sellers
+
+# Adjusted plotting code with labeled lines and clear axis titles
+ggplot() +
+  geom_line(data = monthly_seller_stats_filtered, aes(x = month, y = total_sellers_subscribed, color = "Total Sellers Subscribed"), size = 1) +
+  geom_line(data = R1_rev_filtered, aes(x = date, y = monthly_revenue / transformation_factor, color = "Monthly Revenue"), size = 1) +
+  scale_y_continuous(name = "Total Sellers Subscribed",
+                     sec.axis = sec_axis(~ . * transformation_factor, name = "Monthly Revenue")) +
+  scale_color_manual(values = c("Total Sellers Subscribed" = "blue", "Monthly Revenue" = "red")) +
+  labs(title = "Total Sellers Subscribed and Monthly Revenue Over Time",
+       x = "Date",
+       y = "Value",
+       color = "Legend") + # This adds a legend title
+  scale_x_date(date_breaks = "3 months", date_labels = "%b %Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5)) +
+  theme_minimal() +
+  guides(color = guide_legend(title = "Legend", position = "bottom")) # Customize the legend title
+
+
+
 ```
 
 

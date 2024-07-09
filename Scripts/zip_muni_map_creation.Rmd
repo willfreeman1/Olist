@@ -1,0 +1,107 @@
+Creation of location dataframes, one for muni level and one for zip level, where we have olist_rev_total (start/end date and months subscribed total per location), subscription_rev, sales_rev, SLTV, avg_SLTV, population, income, income_pc, ship_share_price (price & freight_value)
+
+```{r}
+getwd()
+seller_map_df = readRDS("Data//seller_map_df.rds")
+```
+
+```{r}
+# Group data by zip and aggregate
+zip_map_df <- seller_map_df %>%
+  group_by(seller_zip) %>%
+  summarise(
+    muni_name = first(na.omit(muni_name)),
+    zone = first(na.omit(zone)),
+    latitude = first(na.omit(latitude)),
+    longitude = first(na.omit(longitude)),
+    zip_point = first(na.omit(zip_point)),
+    seller_zip_population = first(na.omit(seller_zip_population)),
+    seller_zip_income = first(na.omit(seller_zip_income)),
+    seller_zip_incomepc = first(na.omit(seller_zip_incomepc)),
+    unique_products_sold = sum(unique_products_sold),
+    avg_price_per_seller = mean(avg_price),
+    total_sellers = n_distinct(seller_id),
+    total_sales = sum(total_sales),
+    avg_freight_per_seller = mean(avg_freight),
+    total_freight = sum(total_freight),
+    total_revenue = sum(total_revenue),
+    total_orders = sum(total_orders),
+    avg_ship_share_per_seller = mean(avg_ship_share),
+    avg_expected_ship_time_per_seller = mean(avg_expected_ship_time),
+    avg_ship_time_per_seller = mean(avg_ship_time),
+    avg_review_score_per_seller = mean(avg_review_score),
+    total_seller_LTV = sum(seller_LTV),
+    avg_seller_LTV = mean(seller_LTV)
+  )
+```
+
+```{r}
+# Group data by municipality and aggregate
+muni_map_df <- zip_map_df %>%
+  group_by(muni_name) %>%
+  summarise(
+    muni_population = sum(seller_zip_population),
+    muni_income = sum(seller_zip_income),
+    unique_products_sold = sum(unique_products_sold),
+    avg_price_per_seller = mean(avg_price_per_seller),
+    total_sellers = sum(total_sellers),
+    total_sales = sum(total_sales),
+    avg_freight_per_seller = mean(avg_freight_per_seller),
+    total_freight = sum(total_freight),
+    total_revenue = sum(total_revenue),
+    total_orders = sum(total_orders),
+    avg_ship_share_per_seller = mean(avg_ship_share_per_seller),
+    avg_expected_ship_time_per_seller = mean(avg_expected_ship_time_per_seller),
+    avg_ship_time_per_seller = mean(avg_ship_time_per_seller),
+    avg_review_score_per_seller = mean(avg_review_score_per_seller),
+    total_seller_LTV = sum(total_seller_LTV),
+    avg_seller_LTV = mean(avg_seller_LTV)
+  )
+
+muni_map_df <- muni_map_df %>%
+  mutate(
+    muni_incomepc = muni_income / muni_population
+  )
+
+muni_name_geom = seller_map_df %>%
+  group_by(muni_name)%>%
+  summarise(muni_geom = muni_geom) %>%
+  distinct()
+
+muni_map_df <- muni_map_df %>%
+  left_join(muni_name_geom, by = "muni_name")
+
+muni_map_sf <- st_as_sf(muni_map_df)
+
+muni_map_sf <- st_transform(muni_map_sf, crs = 4326)
+
+# filter out geometry collections
+muni_map_sf <- muni_map_sf %>%
+  filter(st_geometry_type(muni_geom) != "GEOMETRYCOLLECTION")
+
+# Fix 1 NA in expected shipping time
+muni_map_sf$avg_expected_ship_time_per_seller <- ifelse(is.na(muni_map_sf$avg_expected_ship_time_per_seller),
+                                                        median(muni_map_sf$avg_expected_ship_time_per_seller, na.rm = TRUE),
+                                                        muni_map_sf$avg_expected_ship_time_per_seller)
+
+
+
+```
+
+```{r}
+getwd()
+saveRDS(zip_map_df, "..//Data//zip_map_df.rds")
+saveRDS(muni_map_sf, "..//Data//muni_map_sf.rds")
+```
+
+```{r}
+saveRDS(muni_map_sf, "..//muni_map_test//muni_map_sf.rds")
+```
+
+```{r}
+sum(is.na(muni_map_sf$avg_expected_ship_time_per_seller))
+summary(muni_map_sf$avg_expected_ship_time_per_seller)
+
+
+```
+

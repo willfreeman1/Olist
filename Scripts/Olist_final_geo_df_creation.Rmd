@@ -629,6 +629,36 @@ final_geo_df <- merge(customer_geo_df_monthly, seller_geo_df_monthly,
 ```
 
 ```{r}
+str(final_geo_df)
+```
+```{r}
+#Get share of total sales by state
+
+total_sales <- sum(final_geo_df$cust_sales_month, na.rm = TRUE)
+total_sales
+
+state_sales_share <- final_geo_df %>%
+  group_by(customer_state) %>%
+  summarize(total_state_sales = sum(cust_sales_month)) %>%
+  mutate(percentage_share = (total_state_sales/total_sales) * 100)
+
+state_sales_share
+```
+```{r}
+#Get share of total sales by city 
+
+city_sales_share <- final_geo_df %>%
+  group_by(customer_city) %>%
+  summarize(total_city_sales = sum(cust_sales_month)) %>%
+  mutate(percentage_share = (total_city_sales/total_sales) * 100) %>%
+  arrange(desc(percentage_share))
+
+city_sales_share
+
+```
+
+
+```{r}
 #Save final_geo_df as rds
 
 saveRDS(final_geo_df, "final_geo_df.rds")
