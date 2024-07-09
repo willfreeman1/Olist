@@ -4,3 +4,19 @@
 .Ruserdata
 # Ignore RDS files
 *.RDS
+# Ignore directories
+Data/
+Denis_version/
+Leaflet_Maps/
+Olist/
+Olist_1/
+R_Analysis/
+Scripts/
+Screenshots/
+
+# Ignore file types globally
+*.rds
+*.csv
+*.xlsx
+*.png
+*.nb.html
