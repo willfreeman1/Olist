@@ -1,0 +1,34 @@
+.RData
+.Rhistory
+.Ruserdata
+.Rproj.user
+.Rapp.history
+.Rprofile
+.httr-oauth
+# Ignore directories
+Data/
+Denis_version/
+Leaflet_Maps/
+Olist/
+Olist_1/
+R_Analysis/
+Scripts/
+Screenshots/
+ShinyApp/
+Output/
+muni_zip_map/
+muni_map_test/
+map_test/
+full_map_app/
+FinalApp_Archive/
+Documents/
+Denis_Version/
+
+
+# Ignore file types globally
+*.rds
+*.csv
+*.xlsx
+*.png
+*.nb.html
+*.rmd
