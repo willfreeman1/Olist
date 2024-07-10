@@ -23,7 +23,7 @@ The R-Shiny application can be accessed [here](https://willfreeman.shinyapps.io/
 - **Video Presentation**: A detailed walkthrough of the project and its outcomes is available in [this presentation](https://youtu.be/MGdV4J6cKWA?si=xT2zGKkuQVh0aths).
 
 ## Contact
-If you have any questions or would like to access the additional materials mentioned above, please feel free to contact me at [your-email@example.com](mailto:your-email@example.com).
+If you have any questions or would like to access the additional materials mentioned above, please feel free to contact me here on github.
 
 ## License
 This project is licensed under the terms of the MIT license.
